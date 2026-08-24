@@ -9,6 +9,14 @@ export default async function run(page) {
     const values = await page.locator(`${selector} tbody td:last-child`).allTextContents();
     return values.reduce((total, value) => total + Number.parseInt(value.replace(/\D/g, ''), 10), 0);
   };
+  const regexEscape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const assertCalibrationBand = async (table, scope, band, expected) => {
+    const row = table.getByRole('row', { name: new RegExp(`^${regexEscape(band)}\\b`) });
+    const rowHeader = await row.getByRole('rowheader').innerText();
+    const value = await row.getByRole('cell').innerText();
+    check(`${scope} calibration ${band} band identity`, rowHeader.startsWith(`${band} (n=`), rowHeader);
+    check(`${scope} calibration ${band} exact lifecycle tuple`, value === expected, value);
+  };
 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.waitForSelector('.pipeline-table tbody tr');
@@ -20,20 +28,25 @@ export default async function run(page) {
   check('explicit axes', (await page.locator('#time-series-chart').innerText()).includes('Daily Period Start') && (await page.locator('#time-series-chart').innerText()).includes('Submission Count'));
   check('sortable table semantics', await page.locator('th[aria-sort]').count() >= 5);
   check('desktop filters expanded', await page.locator('#filter-disclosure').getAttribute('open') !== null);
-  for (const [selector, axisTitle] of [
-    ['#funnel-chart', 'Count'],
-    ['#calibration-chart', 'Progression'],
-    ['#feedback-category-chart', 'Count'],
-    ['#aging-chart', 'Count'],
+  for (const chartSpec of [
+    { name: /Cumulative Recorded Funnel/, axisTitle: 'Count', ticks: ['0', '50', '99'] },
+    { name: /Fit-Band Event Progression/, axisTitle: 'Progression', ticks: ['0%', '50%', '100%'] },
+    { name: /Feedback Categories/, axisTitle: 'Count', ticks: ['0', '9', '18'] },
+    { name: /Pipeline Aging Distribution/, axisTitle: 'Count', ticks: ['0', '31', '61'] },
   ]) {
-    check(`${selector} numeric axis`, await page.locator(`${selector} svg .axis-line-strong`).count() === 1);
-    check(`${selector} axis title`, (await page.locator(`${selector} svg`).textContent()).includes(axisTitle));
+    const chart = page.getByRole('img', { name: chartSpec.name });
+    check(`${chartSpec.name.source} numeric baseline`, await chart.locator('.axis-line-strong').count() === 1);
+    check(`${chartSpec.name.source} axis title`, await chart.locator('text.axis').filter({ hasText: new RegExp(`^${regexEscape(chartSpec.axisTitle)}$`) }).isVisible());
+    for (const tick of chartSpec.ticks) {
+      const tickLabel = chart.locator('text.axis').filter({ hasText: new RegExp(`^${regexEscape(tick)}$`) });
+      check(`${chartSpec.name} visible tick ${tick}`, await tickLabel.count() === 1 && await tickLabel.isVisible());
+    }
   }
-  const submittedFunnelRow = page.locator('#funnel-chart .chart-table tbody tr').filter({ hasText: 'Submitted' });
-  check('global cumulative funnel submitted count', await submittedFunnelRow.locator('td').innerText() === '72', await submittedFunnelRow.innerText());
-  const calibration90 = page.locator('#calibration-chart .chart-table tbody tr').filter({ hasText: '90-100' });
-  const calibration90Text = await calibration90.innerText();
-  check('global event calibration matches snapshot', calibration90Text.includes('19 submitted') && calibration90Text.includes('5 responded') && calibration90Text.includes('0 interviewed') && calibration90Text.includes('0 offered'), calibration90Text);
+  const funnelTable = page.getByRole('table', { name: 'Text Summary: Cumulative Recorded Funnel' });
+  const submittedFunnelRow = funnelTable.getByRole('row', { name: /^Submitted\b/ });
+  check('global cumulative funnel submitted count', await submittedFunnelRow.getByRole('cell').innerText() === '72', await submittedFunnelRow.innerText());
+  const globalCalibrationTable = page.getByRole('table', { name: 'Text Summary: Fit-Band Event Progression' });
+  await assertCalibrationBand(globalCalibrationTable, 'global', '90-100', '26% response · 19 submitted · 5 responded · 0 interviewed · 0 offered');
   const dailyRows = page.locator('#time-series-chart .chart-table tbody tr');
   check('daily cadence full continuous range', await dailyRows.count() === 55, String(await dailyRows.count()));
   check('daily cadence starts at snapshot start', (await dailyRows.first().innerText()).includes('Jul 1, 2026'));
@@ -74,10 +87,13 @@ export default async function run(page) {
   check('combined filters persist in URL', page.url().includes('role_family=applied_ai') && page.url().includes('stage=submitted'), page.url());
   check('today submission semantics remain event-based', (await page.locator('.throughput-band').nth(1).locator('.band-value').innerText()) === '0 / 20', await page.locator('.throughput-band').nth(1).locator('.band-value').innerText());
   check('filtered chart families all update', await page.evaluate(() => [...document.querySelectorAll('.chart-shell')].length === 5 && [...document.querySelectorAll('.chart-shell')].every((chart) => chart.childElementCount > 0)));
-  const filteredSubmittedRow = page.locator('#funnel-chart .chart-table tbody tr').filter({ hasText: 'Submitted' });
-  check('filtered cumulative funnel uses lifecycle IDs', await filteredSubmittedRow.locator('td').innerText() === '16', await filteredSubmittedRow.innerText());
-  const filteredCalibrationText = (await page.locator('#calibration-chart .chart-table tbody tr').allTextContents()).join(' ');
-  check('filtered calibration uses lifecycle counts', filteredCalibrationText.includes('submitted') && !filteredCalibrationText.includes('Not recorded'), filteredCalibrationText.slice(0, 300));
+  const filteredFunnelTable = page.getByRole('table', { name: 'Text Summary: Cumulative Recorded Funnel' });
+  const filteredSubmittedRow = filteredFunnelTable.getByRole('row', { name: /^Submitted\b/ });
+  check('filtered cumulative funnel uses lifecycle IDs', await filteredSubmittedRow.getByRole('cell').innerText() === '16', await filteredSubmittedRow.innerText());
+  const filteredCalibrationTable = page.getByRole('table', { name: 'Text Summary: Fit-Band Event Progression' });
+  await assertCalibrationBand(filteredCalibrationTable, 'filtered', '90-100', '0% response · 6 submitted · 0 responded · 0 interviewed · 0 offered');
+  await assertCalibrationBand(filteredCalibrationTable, 'filtered', '80-89', '0% response · 9 submitted · 0 responded · 0 interviewed · 0 offered');
+  await assertCalibrationBand(filteredCalibrationTable, 'filtered', 'missing', '0% response · 1 submitted · 0 responded · 0 interviewed · 0 offered');
   await page.locator('#reset-filters').click();
 
   await page.selectOption('#feedback-category', 'metric_rigor_provenance');
