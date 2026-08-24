@@ -264,11 +264,58 @@ class GmailReconciliationTests(unittest.TestCase):
         self.assertRegex(signal.source_ref, SHA256)
         self.assertNotIn(message["messageId"], signal.source_ref)
 
+    def test_every_mail_signal_text_field_scrubs_common_secret_forms(self):
+        secrets = (
+            "445566",
+            "123456",
+            "654321",
+            "998877",
+            "ZZ9911",
+            "eyJabc.123.XYZ",
+            "tok_live_ABC123",
+            "ts_778899",
+            "fixture-source-secret-778899",
+        )
+        signal = classify_message({
+            "subject": "Application update - verification code is 123456",
+            "sender": "ExampleCo Talent access token: tok_live_ABC123",
+            "messageTimestamp": "2026-08-24T10:00:00Z token: ts_778899",
+            "messageText": (
+                "<p>We will not move forward.</p>"
+                "<p>OTP is 654321. PIN: 998877. token=eyJabc.123.XYZ</p>"
+            ),
+            "messageId": "fixture-source-secret-778899",
+            "company": "ExampleCo code: 445566",
+            "role": "Platform Engineer passcode is ZZ9911",
+        })
+        held_text = tuple(
+            getattr(signal, name)
+            for name in signal.__dataclass_fields__
+            if isinstance(getattr(signal, name), str)
+        )
+        for secret in secrets:
+            with self.subTest(secret=secret):
+                self.assertNotIn(secret, held_text)
+                self.assertFalse(any(secret in value for value in held_text))
+        self.assertIn("code is reviewed", classify_message({
+            "subject": "Application code is reviewed",
+            "sender": "ExampleCo Talent",
+            "messageTimestamp": "2026-08-24T10:00:00Z",
+            "messageText": "We will not progress.",
+            "messageId": "fixture-prose-not-secret",
+            "company": "ExampleCo",
+            "role": "Platform Engineer",
+        }).subject)
+
+
     def test_unrelated_newsletter_is_ignored(self):
         self.assertIsNone(classify_message(self.by_case["unrelated_newsletter"]))
 
+
     def test_role_specific_luminor_rejection_matches_only_security_role(self):
         signal = classify_message(self.by_case["luminor_security_rejection"])
+        self.assertEqual(signal.company, "luminor group")
+        self.assertEqual(signal.role, "Senior Security Engineer (Data Platform)")
         applications = [
             {"application_id": "ai", "company": "Luminor Bank", "role": "AI Platform Engineer", "discovered_at": "2026-08-16"},
             {"application_id": "security", "company": "Luminor Bank", "role": "Senior Security Engineer (Data Platform)", "discovered_at": "2026-08-16"},
@@ -276,6 +323,18 @@ class GmailReconciliationTests(unittest.TestCase):
         result = match_application(signal, applications)
         self.assertEqual(result.application_id, "security")
         self.assertGreaterEqual(result.score, 0.85)
+
+    def test_subject_role_is_extracted_without_injected_metadata(self):
+        signal = classify_message({
+            "subject": "Applied AI Engineer - Application update",
+            "sender": "Aster Labs Talent",
+            "messageTimestamp": "2026-08-24T10:00:00Z",
+            "messageText": "We will not progress.",
+            "messageId": "fixture-subject-role",
+        })
+        self.assertEqual(signal.company, "aster labs")
+        self.assertEqual(signal.role, "Applied AI Engineer")
+
 
     def test_taktile_us_role_matches_unique_berlin_london_application(self):
         signal = classify_message(self.by_case["taktile_rejection_us_role"])
@@ -354,6 +413,49 @@ class GmailReconciliationTests(unittest.TestCase):
         proposal = SyncProposal((), (), (), (), {"last_successful_at": None})
         with self.assertRaises(FrozenInstanceError):
             proposal.events = ()
+
+    def test_sync_proposal_recursively_freezes_defensive_copies(self):
+        source_rows = [
+            {"kind": "event", "nested": {"items": ["event"]}},
+            {"kind": "feedback", "nested": {"items": ["feedback"]}},
+            {"kind": "tracker", "nested": {"items": ["tracker"]}},
+            {"kind": "review", "nested": {"items": ["review"]}},
+        ]
+        checkpoint = {"cursor": {"refs": ["source"]}}
+        proposal = SyncProposal(
+            (source_rows[0],),
+            (source_rows[1],),
+            (source_rows[2],),
+            (source_rows[3],),
+            checkpoint,
+        )
+
+        for row in source_rows:
+            row["nested"]["items"][0] = "changed"
+            row["nested"]["items"].append("added")
+        checkpoint["cursor"]["refs"][0] = "changed"
+
+        held_rows = (
+            proposal.events[0],
+            proposal.feedback[0],
+            proposal.tracker_updates[0],
+            proposal.review_items[0],
+        )
+        self.assertEqual(
+            [row["nested"]["items"] for row in held_rows],
+            [("event",), ("feedback",), ("tracker",), ("review",)],
+        )
+        self.assertEqual(proposal.checkpoint["cursor"]["refs"], ("source",))
+        for row in held_rows:
+            with self.assertRaises(TypeError):
+                row["nested"] = {}
+            with self.assertRaises(TypeError):
+                row["nested"]["new"] = "value"
+            with self.assertRaises(AttributeError):
+                row["nested"]["items"].append("value")
+        with self.assertRaises(TypeError):
+            proposal.checkpoint["cursor"] = {}
+
 
     def test_fixtures_are_sanitized_and_complete_for_task_matrix(self):
         required = {

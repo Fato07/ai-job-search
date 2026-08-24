@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 import re
 import subprocess
@@ -8,6 +9,7 @@ from dataclasses import dataclass
 from datetime import date
 from html.parser import HTMLParser
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from analytics.model import hash_source_ref
@@ -46,6 +48,15 @@ class MatchResult:
     score: float
     reason: str
 
+def _freeze(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze(item) for item in value)
+    return deepcopy(value)
+
 
 @dataclass(frozen=True)
 class SyncProposal:
@@ -54,6 +65,12 @@ class SyncProposal:
     tracker_updates: tuple[Mapping[str, object], ...]
     review_items: tuple[Mapping[str, object], ...]
     checkpoint: Mapping[str, object]
+
+    def __post_init__(self) -> None:
+        for field_name in ("events", "feedback", "tracker_updates", "review_items"):
+            rows = getattr(self, field_name)
+            object.__setattr__(self, field_name, tuple(_freeze(row) for row in rows))
+        object.__setattr__(self, "checkpoint", _freeze(self.checkpoint))
 
 
 class _TextExtractor(HTMLParser):
@@ -77,11 +94,23 @@ class _TextExtractor(HTMLParser):
 
 _EMAIL = re.compile(r"(?i)\b[\w.!#$%&'*+/=?^`{|}~-]+@[\w.-]+\.[a-z]{2,}\b")
 _URL = re.compile(r"(?i)\bhttps?://\S+")
-_SENSITIVE_CODE = re.compile(
-    r"(?i)\b(?:verification|security|access|one[- ]time|otp)\s+code\s*[:#-]?\s*[a-z0-9-]{4,}\b"
+_SENSITIVE_VALUE = re.compile(
+    r"(?i)\b(?P<label>verification\s+code|access\s+token|one[- ]time\s+(?:code|password)|"
+    r"passcode|otp|pin|code|token)\s*"
+    r"(?P<separator>[:=#]|\s+-\s+|\s+is\s+)\s*"
+    r"(?P<value>[a-z0-9][a-z0-9._~+/=-]{3,})"
 )
 _PHONE = re.compile(r"(?<!\w)(?:\+?\d[\d ()-]{7,}\d)(?!\w)")
 _WHITESPACE = re.compile(r"\s+")
+
+
+def _redact_sensitive_value(match: re.Match[str]) -> str:
+    value = match.group("value")
+    separator = match.group("separator").strip().casefold()
+    if separator == "is" and value.isalpha() and value.islower():
+        return match.group(0)
+    return f"{match.group('label')} [removed]"
+
 
 _REJECTION_PATTERNS = (
     re.compile(r"\bwe (?:have )?decided not to (?:move forward|proceed)\b", re.I),
@@ -133,6 +162,12 @@ _COMPANY_SUFFIXES = frozenset(
     {"gmbh", "inc", "limited", "llc", "ltd", "oy", "plc", "talent", "team", "recruiting", "careers"}
 )
 _ROLE_STOPWORDS = frozenset({"m", "f", "d", "role", "position"})
+_ROLE_MARKERS = frozenset(
+    {
+        "analyst", "architect", "consultant", "developer", "director", "engineer",
+        "engineering", "lead", "manager", "scientist", "security", "specialist",
+    }
+)
 
 
 def _diagnostic(value: object, fallback: str) -> str:
@@ -255,7 +290,7 @@ def _sanitize_text(value: object, limit: int | None = None) -> str:
     text = _html_text(value)
     text = _URL.sub("[link]", text)
     text = _EMAIL.sub("[address removed]", text)
-    text = _SENSITIVE_CODE.sub("[code removed]", text)
+    text = _SENSITIVE_VALUE.sub(_redact_sensitive_value, text)
     text = _PHONE.sub("[number removed]", text)
     text = _WHITESPACE.sub(" ", text).strip()
     if limit is not None and len(text) > limit:
@@ -278,18 +313,43 @@ def _sender_display(value: object) -> str:
     return text or "unknown"
 
 
-def _extract_role(message: Mapping[str, object], body: str) -> str:
+def _looks_like_role(value: str) -> bool:
+    tokens = re.findall(r"[a-z0-9]+", value.casefold())
+    return 1 < len(tokens) <= 16 and bool(set(tokens) & _ROLE_MARKERS)
+
+
+def _extract_role(message: Mapping[str, object], body: str, subject: str) -> str:
     supplied = _sanitize_text(message.get("role"), 200)
     if supplied:
         return supplied
-    patterns = (
+
+    subject_patterns = (
+        re.compile(r"(?i)^(.{2,120}?)\s*(?:[-:|]\s*)application\s+(?:update|status)\b"),
+        re.compile(r"(?i)^update (?:on|for) (?:your )?(.{2,120}?) application\b"),
+    )
+    for pattern in subject_patterns:
+        match = pattern.search(subject)
+        if match:
+            candidate = _sanitize_text(match.group(1), 200).strip(" ,.-")
+            if _looks_like_role(candidate):
+                return candidate
+
+    body_patterns = (
         re.compile(r"(?i)\bapplication for (?:the )?(.{2,120}?)(?: role| position|[.!])"),
         re.compile(r"(?i)\bfor (?:the )?(.{2,120}?) role\b"),
     )
-    for pattern in patterns:
+    for pattern in body_patterns:
         match = pattern.search(body)
         if match:
-            return _sanitize_text(match.group(1), 200).strip(" ,.-")
+            candidate = _sanitize_text(match.group(1), 200).strip(" ,.-")
+            if _looks_like_role(candidate):
+                return candidate
+
+    standalone = re.match(r"(?i)^(.{2,120}?)\.\s+(?=we\b)", body)
+    if standalone:
+        candidate = _sanitize_text(standalone.group(1), 200).strip(" ,.-")
+        if _looks_like_role(candidate):
+            return candidate
     return ""
 
 
@@ -366,7 +426,7 @@ def classify_message(message: Mapping[str, object]) -> MailSignal | None:
     return MailSignal(
         occurred_at=_sanitize_text(message.get("messageTimestamp") or message.get("occurred_at"), 40),
         company=_extract_company(message, sender),
-        role=_extract_role(message, body),
+        role=_extract_role(message, body, subject),
         event_type=event_type,
         evidence_tier=evidence_tier,
         category=category,

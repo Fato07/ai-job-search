@@ -24,10 +24,8 @@
     "subject": "Thank you for your job application!",
     "sender": "Luminor Group Talent",
     "messageTimestamp": "2026-08-21T07:35:34Z",
-    "messageText": "Senior Security Engineer (Data Platform). We will not progress with your application and selected another candidate.",
-    "threadId": "fixture-luminor-security-thread",
-    "company": "Luminor Group",
-    "role": "Senior Security Engineer (Data Platform)"
+    "messageText": "Senior Security Engineer (Data Platform). We will not progress.",
+    "threadId": "fixture-luminor-security-thread"
   },
   {
     "case": "carta_rejection",
