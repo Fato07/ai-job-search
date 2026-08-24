@@ -289,7 +289,7 @@ The inception backfill must encode at least these evidence-backed lessons:
 The primary refresh command will support:
 
 ```text
-python dashboard/build.py --sync-gmail
+python3 -m dashboard.build --sync-gmail
 ```
 
 This command:
