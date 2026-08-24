@@ -10,6 +10,7 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 _DATA_MARKER = "__DASHBOARD_DATA__"
 _DEFAULT_TEMPLATE = (
@@ -68,6 +69,17 @@ def _parse_timestamp(value: object) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+def _reporting_zone(config: Mapping[str, object]) -> tuple[str, ZoneInfo]:
+    name = _text(config.get("reporting_timezone")) or "Europe/Tallinn"
+    try:
+        return name, ZoneInfo(name)
+    except ZoneInfoNotFoundError as exc:
+        raise ValueError(f"invalid reporting_timezone: {name!r}") from exc
+
+
+def _operational_date(timestamp: datetime, reporting_zone: ZoneInfo) -> date:
+    return timestamp.astimezone(reporting_zone).date()
 
 
 def _event_label(row: Mapping[str, object], fallback: str) -> str:
@@ -128,10 +140,10 @@ def _normalize_events(
     rows: Sequence[Mapping[str, object]],
     application_ids: set[str],
     today: date,
+    reporting_zone: ZoneInfo,
 ) -> tuple[
     list[tuple[dict[str, object], datetime]], list[str], list[str], list[str], list[str]
 ]:
-    cutoff = datetime.combine(today, time.max, timezone.utc)
     chosen: dict[tuple[object, ...], tuple[dict[str, object], datetime]] = {}
     duplicate_labels: set[str] = set()
     orphan_labels: list[str] = []
@@ -149,7 +161,7 @@ def _normalize_events(
         if occurred_at is None:
             invalid_timestamp_labels.append(label)
             continue
-        if occurred_at > cutoff:
+        if _operational_date(occurred_at, reporting_zone) > today:
             future_labels.append(label)
             continue
         event_id = _text(row.get("event_id"))
@@ -299,49 +311,88 @@ def _event_sets(
         "offered": _ids_with_event(events, {"offer"}),
     }
 
-def _lifecycle_outcomes(
+def _chronological_outcome_times(
     grouped_events: Mapping[str, Sequence[tuple[dict[str, object], datetime]]],
-) -> dict[str, set[str]]:
-    events = [event for application_events in grouped_events.values() for event in application_events]
-    outcomes = _event_sets(events)
-    outcomes["responded"] = set()
-    outcomes["interviewed"] = set()
-    outcomes["offered"] = set()
+) -> dict[str, dict[str, tuple[datetime, ...]]]:
+    collected: dict[str, dict[str, list[datetime]]] = {
+        "responded": defaultdict(list),
+        "interviewed": defaultdict(list),
+        "offered": defaultdict(list),
+        "decided": defaultdict(list),
+    }
     for application_id, application_events in grouped_events.items():
         submitted_at = _first_event(application_events, {"submitted"})
         if submitted_at is None:
             continue
-        later_types = {
-            _text(row.get("event_type")).casefold()
-            for row, occurred_at in application_events
-            if occurred_at >= submitted_at
+        for row, occurred_at in application_events:
+            if occurred_at < submitted_at:
+                continue
+            event_type = _text(row.get("event_type")).casefold()
+            if event_type in _RESPONSE_EVENTS:
+                collected["responded"][application_id].append(occurred_at)
+            if event_type == "interview":
+                collected["interviewed"][application_id].append(occurred_at)
+            if event_type == "offer":
+                collected["offered"][application_id].append(occurred_at)
+            if event_type in _DECISION_EVENTS:
+                collected["decided"][application_id].append(occurred_at)
+    return {
+        outcome: {
+            application_id: tuple(sorted(timestamps))
+            for application_id, timestamps in sorted(by_application.items())
         }
-        if later_types & _RESPONSE_EVENTS:
-            outcomes["responded"].add(application_id)
-        if "interview" in later_types:
-            outcomes["interviewed"].add(application_id)
-        if "offer" in later_types:
-            outcomes["offered"].add(application_id)
+        for outcome, by_application in collected.items()
+    }
+
+def _lifecycle_outcomes(
+    events: Sequence[tuple[dict[str, object], datetime]],
+    outcome_times: Mapping[str, Mapping[str, Sequence[datetime]]],
+) -> dict[str, set[str]]:
+    outcomes = _event_sets(events)
+    for outcome in ("responded", "interviewed", "offered"):
+        outcomes[outcome] = set(outcome_times[outcome])
     return outcomes
 
 
 def _series_row(
     day: date,
     events: Sequence[tuple[dict[str, object], datetime]],
+    outcome_times: Mapping[str, Mapping[str, Sequence[datetime]]],
+    reporting_zone: ZoneInfo,
 ) -> dict[str, object]:
-    on_day = [(row, timestamp) for row, timestamp in events if timestamp.date() == day]
+    on_day = [
+        (row, timestamp)
+        for row, timestamp in events
+        if _operational_date(timestamp, reporting_zone) == day
+    ]
     sets = _event_sets(on_day)
+    for outcome in ("responded", "interviewed", "offered"):
+        sets[outcome] = {
+            application_id
+            for application_id, timestamps in outcome_times[outcome].items()
+            if any(_operational_date(timestamp, reporting_zone) == day for timestamp in timestamps)
+        }
     return {"date": day.isoformat(), **{name: len(sets[name]) for name in _EVENT_TYPES}}
 
 
 def _daily_series(
-    events: Sequence[tuple[dict[str, object], datetime]], today: date
+    events: Sequence[tuple[dict[str, object], datetime]],
+    outcome_times: Mapping[str, Mapping[str, Sequence[datetime]]],
+    today: date,
+    reporting_zone: ZoneInfo,
 ) -> list[dict[str, object]]:
-    start = min((timestamp.date() for _, timestamp in events), default=today)
-    end = today
+    start = min(
+        (_operational_date(timestamp, reporting_zone) for _, timestamp in events),
+        default=today,
+    )
     return [
-        _series_row(start + timedelta(days=offset), events)
-        for offset in range((end - start).days + 1)
+        _series_row(
+            start + timedelta(days=offset),
+            events,
+            outcome_times,
+            reporting_zone,
+        )
+        for offset in range((today - start).days + 1)
     ]
 
 
@@ -373,13 +424,15 @@ def _conversion_row(
 def _weekly_cohorts(
     grouped_events: Mapping[str, Sequence[tuple[dict[str, object], datetime]]],
     outcomes: Mapping[str, set[str]],
+    reporting_zone: ZoneInfo,
 ) -> list[dict[str, object]]:
     cohorts: dict[str, set[str]] = defaultdict(set)
     for application_id, events in grouped_events.items():
         submitted_at = _first_event(events, {"submitted"})
         if submitted_at is None:
             continue
-        monday = submitted_at.date() - timedelta(days=submitted_at.weekday())
+        submitted_date = _operational_date(submitted_at, reporting_zone)
+        monday = submitted_date - timedelta(days=submitted_date.weekday())
         cohorts[monday.isoformat()].add(application_id)
     return [
         _conversion_row("week_start", week_start, application_ids, outcomes)
@@ -390,33 +443,17 @@ def _weekly_cohorts(
 def _response_metrics(
     grouped_events: Mapping[str, Sequence[tuple[dict[str, object], datetime]]],
     outcomes: Mapping[str, set[str]],
+    outcome_times: Mapping[str, Mapping[str, Sequence[datetime]]],
 ) -> dict[str, object]:
     response_hours: list[float] = []
     decision_hours: list[float] = []
     open_applications = 0
     for application_id in sorted(outcomes["submitted"]):
-        events = grouped_events.get(application_id, ())
-        submitted_at = _first_event(events, {"submitted"})
+        submitted_at = _first_event(grouped_events.get(application_id, ()), {"submitted"})
         if submitted_at is None:
             continue
-        response_at = min(
-            (
-                occurred_at
-                for row, occurred_at in events
-                if _text(row.get("event_type")).casefold() in _RESPONSE_EVENTS
-                and occurred_at >= submitted_at
-            ),
-            default=None,
-        )
-        decision_at = min(
-            (
-                occurred_at
-                for row, occurred_at in events
-                if _text(row.get("event_type")).casefold() in _DECISION_EVENTS
-                and occurred_at >= submitted_at
-            ),
-            default=None,
-        )
+        response_at = min(outcome_times["responded"].get(application_id, ()), default=None)
+        decision_at = min(outcome_times["decided"].get(application_id, ()), default=None)
         if response_at is not None:
             response_hours.append((response_at - submitted_at).total_seconds() / 3600)
         if decision_at is not None:
@@ -425,14 +462,17 @@ def _response_metrics(
             open_applications += 1
 
     submitted = len(outcomes["submitted"])
+    responded = len(outcomes["responded"] & outcomes["submitted"])
+    interviewed = len(outcomes["interviewed"] & outcomes["submitted"])
+    offered = len(outcomes["offered"] & outcomes["submitted"])
     return {
         "submitted": submitted,
-        "responded": len(outcomes["responded"] & outcomes["submitted"]),
-        "interviewed": len(outcomes["interviewed"] & outcomes["submitted"]),
-        "offered": len(outcomes["offered"] & outcomes["submitted"]),
-        "response_rate": _rate(len(outcomes["responded"] & outcomes["submitted"]), submitted),
-        "interview_rate": _rate(len(outcomes["interviewed"] & outcomes["submitted"]), submitted),
-        "offer_rate": _rate(len(outcomes["offered"] & outcomes["submitted"]), submitted),
+        "responded": responded,
+        "interviewed": interviewed,
+        "offered": offered,
+        "response_rate": _rate(responded, submitted),
+        "interview_rate": _rate(interviewed, submitted),
+        "offer_rate": _rate(offered, submitted),
         "median_time_to_response_hours": _median_hours(response_hours),
         "median_time_to_decision_hours": _median_hours(decision_hours),
         "open_applications": open_applications,
@@ -521,6 +561,7 @@ def _pipeline(
     grouped_events: Mapping[str, Sequence[tuple[dict[str, object], datetime]]],
     feedback: Sequence[Mapping[str, object]],
     today: date,
+    reporting_zone: ZoneInfo,
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for application_id, application in sorted(applications.items()):
@@ -534,10 +575,16 @@ def _pipeline(
             "application_id": application_id,
             "company": _text(application.get("company")),
             "role": _text(application.get("role")),
-            "application_date": submitted_at.date().isoformat() if submitted_at else None,
+            "application_date": (
+                _operational_date(submitted_at, reporting_zone).isoformat()
+                if submitted_at else None
+            ),
             "stage": stage or "unknown",
             "status": _text(application.get("status")),
-            "age_days": (today - latest_at.date()).days if latest_at else None,
+            "age_days": (
+                (today - _operational_date(latest_at, reporting_zone)).days
+                if latest_at else None
+            ),
             "role_family": _text(application.get("role_family")) or "unknown",
             "geography": _text(application.get("geography")) or "unknown",
             "channel": _text(application.get("channel")) or "unknown",
@@ -589,6 +636,8 @@ def _filters(
         "role_family": values("role_family"),
         "geography": values("geography"),
         "channel": values("channel"),
+        "logistics_status": values("logistics_status"),
+        "seniority": values("seniority"),
         "stage": values("stage"),
         "fit_band": values("fit_band"),
         "evidence_tier": sorted({_text(row.get("evidence_tier")) for row in feedback if _text(row.get("evidence_tier"))}),
@@ -608,6 +657,7 @@ def build_snapshot(
     """Build one deterministic, as-of-date analytics snapshot."""
     if not isinstance(today, date) or isinstance(today, datetime):
         raise TypeError("today must be a date")
+    reporting_timezone, reporting_zone = _reporting_zone(config)
 
     application_rows = [dict(row) for row in applications]
     event_rows = [dict(row) for row in events]
@@ -623,10 +673,11 @@ def build_snapshot(
         orphan_events,
         invalid_event_timestamps,
         future_events,
-    ) = _normalize_events(event_rows, application_ids, today)
+    ) = _normalize_events(event_rows, application_ids, today, reporting_zone)
     normalized_feedback, duplicate_feedback, orphan_feedback = _normalize_feedback(feedback_rows, application_ids)
     grouped_events = _events_by_application(normalized_events)
-    outcomes = _lifecycle_outcomes(grouped_events)
+    outcome_times = _chronological_outcome_times(grouped_events)
+    outcomes = _lifecycle_outcomes(normalized_events, outcome_times)
 
     missing_scores = sorted(
         application_id
@@ -656,11 +707,23 @@ def build_snapshot(
         latest_at = max((occurred_at for _, occurred_at in app_events), default=None)
         terminal = _first_event(app_events, {"rejected", "withdrawn"}) is not None
         if stage != "closed" and not terminal and latest_at is not None:
-            if (today - latest_at.date()).days > stale_after_days:
+            if (
+                today - _operational_date(latest_at, reporting_zone)
+            ).days > stale_after_days:
                 stale_rows.append(application_id)
     stale_rows.sort()
 
     review_queue = _review_queue(review_rows)
+    missing_early_events = sorted(
+        event_type
+        for event_type in ("screened", "qualified")
+        if outcomes["submitted"] and not outcomes[event_type]
+    )
+    lifecycle_coverage = {
+        "missing_event_types": missing_early_events,
+        "early_funnel_conversion_available": not missing_early_events,
+        "insufficient": bool(missing_early_events),
+    }
     data_quality = {
         "missing_scores": missing_scores,
         "missing_dates": missing_dates,
@@ -678,9 +741,13 @@ def build_snapshot(
         "future_events": future_events,
         "stale_rows": stale_rows,
         "review_queue": review_queue,
+        "lifecycle_coverage": lifecycle_coverage,
     }
 
-    dates = [occurred_at.date() for _, occurred_at in normalized_events]
+    dates = [
+        _operational_date(occurred_at, reporting_zone)
+        for _, occurred_at in normalized_events
+    ]
     data_start = min(dates).isoformat() if dates else None
     data_end = max(dates).isoformat() if dates else None
     warnings = sorted(
@@ -689,9 +756,14 @@ def build_snapshot(
         if (isinstance(value, list) and value)
         or (key == "duplicates" and any(value.values()))
         or (key == "review_queue" and value["count"])
+        or (key == "lifecycle_coverage" and value["insufficient"])
     )
 
-    today_events = [(row, timestamp) for row, timestamp in normalized_events if timestamp.date() == today]
+    today_events = [
+        (row, timestamp)
+        for row, timestamp in normalized_events
+        if _operational_date(timestamp, reporting_zone) == today
+    ]
     today_sets = _event_sets(today_events)
     screened_today = today_sets["screened"]
     explicit_gate_rejections = _ids_with_event(today_events, {"rejected_by_gate", "gate_rejected"})
@@ -700,12 +772,19 @@ def build_snapshot(
         for application_id in screened_today
         if _text(normalized_apps[application_id].get("screening_decision")).casefold() == "rejected"
     }
-    pipeline = _pipeline(normalized_apps, grouped_events, normalized_feedback, today)
+    pipeline = _pipeline(
+        normalized_apps,
+        grouped_events,
+        normalized_feedback,
+        today,
+        reporting_zone,
+    )
     feedback_snapshot = _feedback_snapshot(normalized_feedback, rule_rows)
 
     snapshot = {
         "meta": {
             "generated_at": f"{today.isoformat()}T00:00:00Z",
+            "reporting_timezone": reporting_timezone,
             "data_range": {"start": data_start, "end": data_end},
             "record_counts": {
                 "applications": len(application_ids),
@@ -742,9 +821,22 @@ def build_snapshot(
             "review_queue": review_queue["count"],
         },
         "funnel": {name: len(outcomes[name]) for name in _EVENT_TYPES},
-        "daily_series": _daily_series(normalized_events, today),
-        "weekly_cohorts": _weekly_cohorts(grouped_events, outcomes),
-        "response_metrics": _response_metrics(grouped_events, outcomes),
+        "daily_series": _daily_series(
+            normalized_events,
+            outcome_times,
+            today,
+            reporting_zone,
+        ),
+        "weekly_cohorts": _weekly_cohorts(
+            grouped_events,
+            outcomes,
+            reporting_zone,
+        ),
+        "response_metrics": _response_metrics(
+            grouped_events,
+            outcomes,
+            outcome_times,
+        ),
         "calibration": _calibration(normalized_apps, outcomes),
         "feedback": feedback_snapshot,
         "pipeline": pipeline,
@@ -833,7 +925,6 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> None:
     args = _parser().parse_args(argv)
     root = Path.cwd()
-    snapshot_date = args.today or date.today()
     if args.sync_gmail:
         from analytics.refresh import RefreshPaths, refresh
 
@@ -845,6 +936,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
 
     applications, events, feedback, rules, review_items, config = _load_inputs(root)
+    _, reporting_zone = _reporting_zone(config)
+    snapshot_date = args.today or datetime.now(reporting_zone).date()
     snapshot = build_snapshot(
         applications,
         events,

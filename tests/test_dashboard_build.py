@@ -62,6 +62,7 @@ CONFIG = {
     "daily_screening_target": 100,
     "daily_submission_soft_capacity": 20,
     "stale_after_days": 14,
+    "reporting_timezone": "Europe/Tallinn",
 }
 TODAY = date(2026, 8, 24)
 
@@ -198,6 +199,45 @@ class DashboardBuildTests(unittest.TestCase):
         self.assertEqual(snapshot["response_metrics"]["responded"], 0)
         self.assertEqual(snapshot["response_metrics"]["open_applications"], 1)
         self.assertIsNone(snapshot["response_metrics"]["median_time_to_response_hours"])
+        daily = {row["date"]: row for row in snapshot["daily_series"]}
+        self.assertEqual(daily["2026-08-20"]["responded"], 0)
+
+    def test_missing_early_lifecycle_events_emit_coverage_warning_without_inference(self):
+        events = [
+            event("d-1", "app-1", "discovered", "2026-08-20T08:00:00Z"),
+            event("s-1", "app-1", "submitted", "2026-08-21T09:00:00Z"),
+        ]
+
+        snapshot = self.build(applications=[APPLICATIONS[0]], events=events, feedback=[], rules=[])
+
+        self.assertEqual(snapshot["funnel"]["screened"], 0)
+        self.assertEqual(snapshot["funnel"]["qualified"], 0)
+        self.assertIn("lifecycle_coverage", snapshot["meta"]["warnings"])
+        self.assertEqual(snapshot["data_quality"]["lifecycle_coverage"], {
+            "missing_event_types": ["qualified", "screened"],
+            "early_funnel_conversion_available": False,
+            "insufficient": True,
+        })
+
+    def test_reporting_timezone_controls_operational_day_and_week_boundaries(self):
+        events = [
+            event("s-1", "app-1", "submitted", "2026-08-23T22:30:00Z"),
+        ]
+
+        snapshot = self.build(applications=[APPLICATIONS[0]], events=events, feedback=[], rules=[])
+
+        self.assertEqual(snapshot["daily_series"], [{
+            "date": "2026-08-24", "discovered": 0, "screened": 0,
+            "qualified": 0, "submitted": 1, "responded": 0,
+            "interviewed": 0, "offered": 0,
+        }])
+        self.assertEqual(snapshot["weekly_cohorts"][0]["week_start"], "2026-08-24")
+        self.assertEqual(snapshot["pipeline"][0]["application_date"], "2026-08-24")
+        self.assertEqual(snapshot["meta"]["reporting_timezone"], "Europe/Tallinn")
+
+    def test_invalid_reporting_timezone_fails_precisely(self):
+        with self.assertRaisesRegex(ValueError, "invalid reporting_timezone: 'Mars/Olympus'"):
+            self.build(config={**CONFIG, "reporting_timezone": "Mars/Olympus"})
 
     def test_calibration_and_weekly_cohorts_gate_conversion_below_five_submissions(self):
         applications = [application(f"app-{number}", 96 - number) for number in range(1, 7)]
@@ -256,6 +296,8 @@ class DashboardBuildTests(unittest.TestCase):
         self.assertEqual(snapshot["pipeline"][0]["application_date"], "2026-08-24")
         self.assertEqual(snapshot["pipeline"][0]["next_action"], "Follow up")
         self.assertEqual(snapshot["filters"]["role_family"], ["ai_platform", "applied_ai"])
+        self.assertEqual(snapshot["filters"]["logistics_status"], ["pass"])
+        self.assertEqual(snapshot["filters"]["seniority"], ["mid", "senior"])
         self.assertEqual(snapshot["filters"]["evidence_tier"], ["explicit", "observed"])
         self.assertEqual(snapshot["filters"]["feedback_category"], ["metric_rigor_provenance", "technical_depth"])
         self.assertEqual(snapshot["filters"]["date_range"], {"start": "2026-08-23", "end": "2026-08-24"})

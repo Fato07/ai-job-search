@@ -4,5 +4,6 @@
   "max_active_applications_per_company": 2,
   "gmail_account_alias": "job-search",
   "gmail_expected_address": "fathindos.fd@gmail.com",
-  "gmail_overlap_days": 7
+  "gmail_overlap_days": 7,
+  "reporting_timezone": "Europe/Tallinn"
 }
