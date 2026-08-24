@@ -118,7 +118,7 @@ _SENSITIVE_VALUE = re.compile(
     r"(?i)\b(?P<label>verification\s+code|access\s+token|one[- ]time\s+(?:code|password)|"
     r"passcode|otp|pin|code|token)\s*"
     r"(?P<separator>[:=#]|\s+-\s+|\s+is\s+)\s*"
-    r"(?P<value>\S+?)(?P<terminal>[.!?,;]?)(?=\s|$)"
+    r"(?P<value>\S+?)(?P<terminal>[.!?,;]*)(?=\s|$)"
 )
 _PHONE = re.compile(r"(?<!\w)(?:\+?\d[\d ()-]{7,}\d)(?!\w)")
 _WHITESPACE = re.compile(r"\s+")

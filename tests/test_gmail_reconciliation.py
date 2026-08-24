@@ -365,29 +365,36 @@ class GmailReconciliationTests(unittest.TestCase):
                     signal = classify_message(message)
                     self.assertNotIn(secret, getattr(signal, held_field))
 
-    def test_short_secret_redaction_preserves_terminal_sentence_punctuation(self):
+    def test_short_secret_redaction_preserves_entire_terminal_punctuation_run(self):
         signal = classify_message({
             "subject": "Application update",
             "sender": "ExampleCo Talent",
             "messageTimestamp": "2026-08-24T10:00:00Z",
-            "messageText": "OTP is 7. We will not progress.",
+            "messageText": "OTP is 7?! We will not progress.",
             "messageId": "fixture-short-secret-punctuation",
             "company": "ExampleCo",
             "role": "Platform Engineer",
         })
-        self.assertIn("OTP [removed]. We will not progress.", signal.excerpt)
+        self.assertEqual(
+            signal.excerpt,
+            "OTP [removed]?! We will not progress.",
+        )
 
 
-    def test_punctuated_prose_predicate_is_preserved_across_external_text_fields(self):
+    def test_ambiguous_prose_predicate_preserves_entire_terminal_punctuation_run(self):
         signal = classify_message({
-            "subject": "Application update. code is reviewed.",
-            "sender": "ExampleCo Talent token is reviewed.",
-            "messageTimestamp": "code is reviewed.",
-            "messageText": "We will not progress. code is reviewed.",
+            "subject": "Application update. code is reviewed!?",
+            "sender": "ExampleCo Talent token is reviewed!?",
+            "messageTimestamp": "code is reviewed!?",
+            "messageText": "We will not progress. code is reviewed!?",
             "messageId": "fixture-punctuated-prose",
-            "company": "ExampleCo code is reviewed.",
-            "role": "Platform Engineer token is reviewed.",
+            "company": "ExampleCo code is reviewed!?",
+            "role": "Platform Engineer token is reviewed!?",
         })
+        self.assertEqual(
+            signal.subject,
+            "Application update. code is reviewed!?",
+        )
         held = (
             signal.subject,
             signal.sender,
@@ -398,7 +405,7 @@ class GmailReconciliationTests(unittest.TestCase):
         )
         for value in held:
             with self.subTest(value=value):
-                self.assertIn("reviewed.", value)
+                self.assertIn("reviewed!?", value)
 
 
 
