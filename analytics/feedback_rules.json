@@ -1,0 +1,230 @@
+[
+  {
+    "category": "communication_decision_clarity",
+    "confidence": 0.95,
+    "evidence_count": 1,
+    "evidence_tiers": [
+      "observed"
+    ],
+    "last_updated": "2026-07-31T00:00:00Z",
+    "required_action": "Behavioral answers name a situation, action, disagreement, and result.",
+    "rule_id": "rule-b23acecdb36f7fc66bc8216e9431325534729a9d5df59973c35d59a34cbb5b13",
+    "scope": {
+      "role_family": "ai_platform",
+      "seniority": "lead",
+      "stage": "screen"
+    },
+    "source_feedback_ids": [
+      "fb-b4d8a7c6f0348780814976d6c545fd584468de528a6ec7873f4ea26be7f54135"
+    ],
+    "status": "active",
+    "trigger": "A behavioral disagreement answer stayed theoretical instead of giving a concrete result."
+  },
+  {
+    "category": "communication_decision_clarity",
+    "confidence": 0.95,
+    "evidence_count": 1,
+    "evidence_tiers": [
+      "observed"
+    ],
+    "last_updated": "2026-07-21T00:00:00Z",
+    "required_action": "Trade-off answers choose explicitly, state criteria, and reject an alternative.",
+    "rule_id": "rule-b3410de5d54180bc1404831a093492426e9cc8700fa62819f1ee7cecf9eaf364",
+    "scope": {
+      "role_family": "applied_ai",
+      "seniority": "senior",
+      "stage": "technical"
+    },
+    "source_feedback_ids": [
+      "fb-31165d2b7f28a71dfd360048479828693b5e757016a1419c71fbb27b648afd7e"
+    ],
+    "status": "active",
+    "trigger": "A trade-off answer enumerated options without making and defending a choice."
+  },
+  {
+    "category": "leadership_people_evidence",
+    "confidence": 0.95,
+    "evidence_count": 1,
+    "evidence_tiers": [
+      "observed"
+    ],
+    "last_updated": "2026-07-31T00:00:00Z",
+    "required_action": "Lead-role evidence names team size, ownership boundary, decision, and outcome.",
+    "rule_id": "rule-50f22070c0ca6f56497379a3391b449efe9a5129ecc5c9afaca74fae7f4962e4",
+    "scope": {
+      "role_family": "ai_platform",
+      "seniority": "lead",
+      "stage": "screen"
+    },
+    "source_feedback_ids": [
+      "fb-b77d7758086438745843eaf697bc5da0baf6ad93ec1257c099ac89abda339960"
+    ],
+    "status": "active",
+    "trigger": "Lead-level scope was not expressed as a clear team, ownership, decision, and outcome."
+  },
+  {
+    "category": "logistics_work_authorization",
+    "confidence": 1.0,
+    "evidence_count": 1,
+    "evidence_tiers": [
+      "explicit"
+    ],
+    "last_updated": "2026-07-20T00:00:00Z",
+    "required_action": "Logistics filters run before drafting and never reduce technical-fit calibration.",
+    "rule_id": "rule-023d26d7bf75ce3c0ef401893b12821ae08ea18ad215e32a8a1493b39bc1737f",
+    "scope": {
+      "employment_model": "employee",
+      "geography": "country-of-residence",
+      "stage": "application"
+    },
+    "source_feedback_ids": [
+      "fb-363c064406e7550f9c3b11909a238e5670960ce56707edd2db67f0deecc85907"
+    ],
+    "status": "active",
+    "trigger": "Country-of-residence work eligibility was required without visa sponsorship."
+  },
+  {
+    "category": "logistics_work_authorization",
+    "confidence": 1.0,
+    "evidence_count": 1,
+    "evidence_tiers": [
+      "explicit"
+    ],
+    "last_updated": "2026-07-08T00:00:00Z",
+    "required_action": "Logistics filters run before drafting and never reduce technical-fit calibration.",
+    "rule_id": "rule-07854442ba6990ad3a415b90cef0c9f5c199a977767f6d97b68fce00e0a513e0",
+    "scope": {
+      "geography": "office-required",
+      "role_family": "applied_ai",
+      "stage": "application"
+    },
+    "source_feedback_ids": [
+      "fb-9a92ee4e18f04021d267206236bde6c72c1d2e1b54f79a77966e12e4433da357"
+    ],
+    "status": "active",
+    "trigger": "Regular office attendance was required and fully remote work was unavailable."
+  },
+  {
+    "category": "logistics_work_authorization",
+    "confidence": 0.9,
+    "evidence_count": 1,
+    "evidence_tiers": [
+      "observed"
+    ],
+    "last_updated": "2026-07-25T00:00:00Z",
+    "required_action": "Logistics filters run before drafting and never reduce technical-fit calibration.",
+    "rule_id": "rule-2777ced10ad207d87a2414220c43fd4cc568697d055fd4a0a055fa7d4ee8f1c7",
+    "scope": {
+      "employment_model": "b2b",
+      "geography": "Helsinki/Tallinn",
+      "stage": "screen"
+    },
+    "source_feedback_ids": [
+      "fb-09c05a81fc46da936df16e91572e95affeae70d74561f36d0bdf3f86523a4e8e"
+    ],
+    "status": "active",
+    "trigger": "The Helsinki employment constraint required a concrete Tallinn B2B delivery model."
+  },
+  {
+    "category": "metric_rigor_provenance",
+    "confidence": 0.95,
+    "evidence_count": 1,
+    "evidence_tiers": [
+      "observed"
+    ],
+    "last_updated": "2026-08-04T00:00:00Z",
+    "required_action": "Every headline metric includes denominator, unit of analysis, provenance, and failure-cost interpretation.",
+    "rule_id": "rule-7e6e6b7cebb6f56bd63cb5e9ec90ef76ae83c225d2fdfc54411c936ea2e340e9",
+    "scope": {
+      "role_family": "applied_ai",
+      "stage": "technical"
+    },
+    "source_feedback_ids": [
+      "fb-5dd6e8a16270be994c176879b59038ccf1ba1ad3eb3e52d38df1eadc851f0add"
+    ],
+    "status": "active",
+    "trigger": "The headline extraction metric lacked a defensible denominator, unit, and provenance."
+  },
+  {
+    "category": "ml_genai_evaluation",
+    "confidence": 1.0,
+    "evidence_count": 1,
+    "evidence_tiers": [
+      "explicit"
+    ],
+    "last_updated": "2026-08-04T00:00:00Z",
+    "required_action": "ML/GenAI evaluation roles lead with hands-on experimentation and evaluation evidence.",
+    "rule_id": "rule-4fabe5fdd555c6389c12281335a40475568f4b4f4d32c53aea2b54ebe2840df7",
+    "scope": {
+      "role_family": "applied_ai",
+      "stage": "technical"
+    },
+    "source_feedback_ids": [
+      "fb-cc9dbb75a856298bfd513fce3d8b0bac2ee7c5a58df9f853137e004a17590ab4"
+    ],
+    "status": "active",
+    "trigger": "Hands-on machine-learning and GenAI evaluation evidence was less extensive than selected candidates'."
+  },
+  {
+    "category": "role_seniority_alignment",
+    "confidence": 0.95,
+    "evidence_count": 1,
+    "evidence_tiers": [
+      "explicit"
+    ],
+    "last_updated": "2026-07-20T00:00:00Z",
+    "required_action": "Target implementation-heavy Applied AI/FDE roles or add direct solutions-engineering proof.",
+    "rule_id": "rule-43805087dff125e0e906c3ba0d6bea5290ec941a843ff07920b558575fc8359b",
+    "scope": {
+      "role_family": "other",
+      "stage": "application"
+    },
+    "source_feedback_ids": [
+      "fb-123d18742bb87cfdaab30c8dab82059af947cfe9386e11fee822b041a08b2643"
+    ],
+    "status": "active",
+    "trigger": "The selected candidates had experience closer to the Solutions Engineer role."
+  },
+  {
+    "category": "role_seniority_alignment",
+    "confidence": 0.95,
+    "evidence_count": 1,
+    "evidence_tiers": [
+      "explicit"
+    ],
+    "last_updated": "2026-07-20T00:00:00Z",
+    "required_action": "Prefer document-AI, workflow, or evaluation-heavy applied roles unless founding-role evidence matches directly.",
+    "rule_id": "rule-ea59d72bfdf9e8813f90ef758aee408f0d0fe975a465ab6f4a553a915226c1a5",
+    "scope": {
+      "role_family": "applied_ai",
+      "seniority": "founding",
+      "stage": "application"
+    },
+    "source_feedback_ids": [
+      "fb-bc72f87dc992f5c2ac31f4b2c99df1afa4397a63740e380e9051ff8b498e8315"
+    ],
+    "status": "active",
+    "trigger": "The profile did not exactly match the founding applied-AI role."
+  },
+  {
+    "category": "technical_depth",
+    "confidence": 0.95,
+    "evidence_count": 1,
+    "evidence_tiers": [
+      "observed"
+    ],
+    "last_updated": "2026-07-21T00:00:00Z",
+    "required_action": "Task-specific evaluation evidence outranks public benchmarks.",
+    "rule_id": "rule-d9683510dbbffd80bf97eb709965dd264723aaa342c0abe667610c765f0de513",
+    "scope": {
+      "role_family": "applied_ai",
+      "seniority": "senior",
+      "stage": "technical"
+    },
+    "source_feedback_ids": [
+      "fb-0ef73f69650bd261a91f55edec606b414a7d21c9e7459f0bc66397b5e2b713c0"
+    ],
+    "status": "active",
+    "trigger": "Model selection and ML fundamentals lacked task-specific depth."
+  }
+]
