@@ -208,6 +208,8 @@ Tracker `stage`, `status`, and `status_updated_at` reflect the latest valid even
 | `signal` | Short normalized finding. |
 | `evidence_excerpt` | Maximum 280-character evidence excerpt. |
 | `required_action` | Specific action for future applications. |
+| `rule_effect` | `activate`, `monitor`, or `resolve`; controls derived-rule state. |
+| `resolves_feedback_id` | Optional prior feedback event whose required action is now verified as resolved. |
 | `scope` | JSON-compatible scope encoded as a compact string: role family, seniority, geography, stage, or global. |
 | `confidence` | Decimal from 0.0 to 1.0. |
 | `source_ref` | SHA-256 hash of the originating message/thread/transcript reference. |
