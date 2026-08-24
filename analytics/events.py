@@ -21,10 +21,16 @@ from analytics.model import (
 _SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])(?:\s+|$)|\n+")
 _ISO_DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 _REJECTION_EVIDENCE = re.compile(
-    r"(?:^|:\s)rejected by\b"
+    r"(?:^|:\s)rejected by "
+    r"(?:the )?(?:hiring team|team|company|employer|recruiter)\b"
     r"|\brejection (?:email )?(?:was )?received\b"
-    r"|\b(?:application|submission) (?:was |has been )?rejected\b"
-    r"|\b(?:candidate|candidacy) (?:was |has been )rejected\b"
+    r"|\b(?:application|submission) (?:was |has been )?rejected(?! by)\b"
+    r"|\b(?:candidate|candidacy) (?:was |has been )rejected(?! by)\b"
+    r"|\b(?:application|submission|candidate|candidacy) "
+    r"(?:was |has been )rejected by "
+    r"(?:the )?(?:hiring team|team|company|employer|recruiter)\b"
+    r"|\b(?:candidate|application) rejected by "
+    r"(?:the )?(?:hiring team|team|company|employer|recruiter)\b"
     r"|\b(?:hiring )?(?:team|company|employer|recruiter) rejected "
     r"(?:the |your )?(?:application|submission|candidate|candidacy)\b"
     r"|\b(?:hiring )?(?:team|company|employer|recruiter) "

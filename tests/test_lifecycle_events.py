@@ -57,6 +57,40 @@ class LifecycleEventTests(unittest.TestCase):
             ],
         )
 
+    def test_passive_rejection_requires_employer_actor_direction(self):
+        applications = [
+            {
+                "application_id": application_id,
+                "discovered_at": "2026-08-20",
+                "submitted_at": "",
+                "status_updated_at": "2026-08-20",
+                "stage": "prospect",
+                "status": "OPEN",
+                "notes": notes,
+            }
+            for application_id, notes in (
+                (
+                    "app-employer-actor",
+                    "Candidate rejected by the employer 2026-08-21.",
+                ),
+                (
+                    "app-candidate-actor",
+                    "Rejected by the candidate 2026-08-21.",
+                ),
+            )
+        ]
+
+        rejected = [
+            (event["application_id"], event["occurred_at"])
+            for event in backfill_events(applications, NOW)
+            if event["event_type"] == "rejected"
+        ]
+
+        self.assertEqual(
+            rejected,
+            [("app-employer-actor", "2026-08-21T00:00:00Z")],
+        )
+
     def test_candidate_direction_and_negation_are_not_employer_rejections(self):
         notes = (
             "Candidate rejected the offer 2026-08-21.",
