@@ -2,6 +2,7 @@ import unittest
 from datetime import datetime, timezone
 
 from analytics.events import backfill_events, event_id, merge_events
+from analytics.model import hash_source_ref
 
 
 NOW = datetime(2026, 8, 24, tzinfo=timezone.utc)
@@ -66,6 +67,77 @@ class LifecycleEventTests(unittest.TestCase):
                 ("interview", "2026-07-30T00:00:00Z"),
                 ("rejected", "2026-07-31T00:00:00Z"),
             ],
+        )
+
+    def test_note_detail_truncates_at_280_but_hashes_full_sentence(self):
+        prefix = "Application was viewed 2026-08-21 "
+        sentence_280 = prefix + "x" * (280 - len(prefix))
+        sentence_281 = prefix + "y" * (281 - len(prefix))
+        applications = [
+            {
+                "application_id": application_id,
+                "discovered_at": "2026-08-20",
+                "submitted_at": "",
+                "status_updated_at": "2026-08-20",
+                "stage": "prospect",
+                "status": "OPEN",
+                "notes": sentence,
+            }
+            for application_id, sentence in (
+                ("app-280", sentence_280),
+                ("app-281", sentence_281),
+            )
+        ]
+        viewed = {
+            event["application_id"]: event
+            for event in backfill_events(applications, NOW)
+            if event["event_type"] == "viewed"
+        }
+        self.assertEqual(viewed["app-280"]["detail"], sentence_280)
+        self.assertEqual(len(viewed["app-281"]["detail"]), 280)
+        self.assertEqual(viewed["app-281"]["detail"], sentence_281[:280])
+        self.assertEqual(
+            viewed["app-281"]["source_ref"],
+            hash_source_ref(f"app-281\x1fnotes:{sentence_281}"),
+        )
+
+    def test_note_parser_ignores_non_occurrence_and_negative_contexts(self):
+        application = {
+            "application_id": "app-1",
+            "discovered_at": "2026-08-20",
+            "submitted_at": "",
+            "status_updated_at": "2026-08-20",
+            "stage": "prospect",
+            "status": "OPEN",
+            "notes": (
+                "The team will follow up 2026-08-21. "
+                "Choose Ready to interview 2026-08-22. "
+                "Interview-recording opt-out notice received 2026-08-23. "
+                "Status marked post-interview 2026-08-24. "
+                "Follow-up draft prepared 2026-08-25. "
+                "No follow-up received 2026-08-26."
+            ),
+        }
+        events = backfill_events([application], NOW)
+        self.assertEqual(
+            [(event["event_type"], event["occurred_at"]) for event in events],
+            [("discovered", "2026-08-20T00:00:00Z")],
+        )
+
+    def test_post_interview_rejection_status_does_not_date_an_interview(self):
+        application = {
+            "application_id": "app-1",
+            "discovered_at": "2026-07-01",
+            "submitted_at": "2026-07-01",
+            "status_updated_at": "2026-08-04",
+            "stage": "interview",
+            "status": "REJECTED 2026-08-04 (post-interview)",
+            "notes": "",
+        }
+        events = backfill_events([application], NOW)
+        self.assertEqual(
+            [event["event_type"] for event in events],
+            ["discovered", "submitted", "rejected"],
         )
 
     def test_event_id_is_stable_and_distinguishes_source_references(self):

@@ -20,18 +20,52 @@ from analytics.model import (
 
 _SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])(?:\s+|$)|\n+")
 _ISO_DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+_REJECTION_EVIDENCE = re.compile(
+    r"\brejected by\b|\brejection (?:email )?(?:was )?received\b",
+    re.IGNORECASE,
+)
+_VIEWED_EVIDENCE = re.compile(
+    r"\bapplication (?:was )?viewed\b"
+    r"|\bviewed (?:the |your )?application\b"
+    r"|\bviewed notification (?:was )?received\b",
+    re.IGNORECASE,
+)
+_FOLLOW_UP_EVIDENCE = re.compile(
+    r"\bfollow[- ]up (?:email )?(?:was )?sent\b"
+    r"|\bsent (?:a |the )?follow[- ]up(?: email)?\b"
+    r"|\bfollowed up\b",
+    re.IGNORECASE,
+)
+_INTERVIEW_EVIDENCE = re.compile(
+    r"\b(?:video |phone )?interview (?:invite|request) (?:was )?received\b"
+    r"|\binvited to interview\b"
+    r"|\b(?:video |phone )?interview (?:was )?"
+    r"(?:done|scheduled|held|happened|completed|conducted|took place)\b"
+    r"|\bintro[- ]call (?:was )?"
+    r"(?:done|scheduled|held|happened|completed|conducted|took place)\b"
+    r"|\b(?:phone|video) screen\b"
+    r"|\b(?:after|following) the \d{4}-\d{2}-\d{2}"
+    r"(?: \d{2}:\d{2})? (?:video |phone )?interview\b",
+    re.IGNORECASE,
+)
+_RECEIVED_EVIDENCE = re.compile(
+    r"\bconfirmation\b.{0,80}\breceived\b"
+    r"|\b(?:application|submission) (?:was |successfully )?received\b"
+    r"|\breceived (?:the |your )?(?:application|submission)\b"
+    r"|\bconfirming receipt\b",
+    re.IGNORECASE,
+)
+_STATUS_INTERVIEW_EVIDENCE = re.compile(
+    r"\b(?:interview|intro[- ]call|phone screen|video screen)\b.*"
+    r"\b(?:done|scheduled|held|happened|completed|conducted)\b",
+    re.IGNORECASE,
+)
 _NOTE_EVENT_PATTERNS = (
-    ("rejected", re.compile(r"\breject(?:ed|ion)\b", re.IGNORECASE)),
-    ("viewed", re.compile(r"\bviewed\b", re.IGNORECASE)),
-    (
-        "follow_up",
-        re.compile(r"\bfollow(?:ed|ing)?[- ]up\b", re.IGNORECASE),
-    ),
-    (
-        "interview",
-        re.compile(r"\binterview(?:ed)?\b|\bintro[- ]call\b", re.IGNORECASE),
-    ),
-    ("received", re.compile(r"\breceived\b", re.IGNORECASE)),
+    ("rejected", _REJECTION_EVIDENCE),
+    ("viewed", _VIEWED_EVIDENCE),
+    ("follow_up", _FOLLOW_UP_EVIDENCE),
+    ("interview", _INTERVIEW_EVIDENCE),
+    ("received", _RECEIVED_EVIDENCE),
 )
 
 
@@ -104,7 +138,7 @@ def _note_events(
         sentence = sentence.strip()
         if not sentence or _ISO_DATE.search(sentence) is None:
             continue
-        sentence_is_rejection = _NOTE_EVENT_PATTERNS[0][1].search(sentence) is not None
+        sentence_is_rejection = _REJECTION_EVIDENCE.search(sentence) is not None
         for event_type, pattern in _NOTE_EVENT_PATTERNS:
             if event_type == "received" and sentence_is_rejection:
                 continue
@@ -117,7 +151,7 @@ def _note_events(
                     application_id,
                     event_type,
                     occurred_date,
-                    sentence,
+                    sentence[:280],
                     f"notes:{sentence}",
                     created_at,
                 )
@@ -182,10 +216,8 @@ def backfill_events(
                 )
             )
         if (
-            stage == "interview"
-            or "interview" in normalized_status
-            or "intro call" in normalized_status
-            or "intro-call" in normalized_status
+            (stage == "interview" and "rejected" not in normalized_status)
+            or _STATUS_INTERVIEW_EVIDENCE.search(status) is not None
         ):
             add(
                 _event(

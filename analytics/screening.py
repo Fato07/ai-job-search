@@ -4,6 +4,9 @@ import argparse
 import csv
 import dataclasses
 import json
+import os
+import shutil
+import tempfile
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -19,7 +22,6 @@ from analytics.model import (
     slugify,
     stable_application_id,
     validate_rows,
-    write_csv_atomic,
 )
 
 SCREENING_COLUMNS = (
@@ -40,6 +42,9 @@ SCREENING_COLUMNS = (
 )
 _VALID_DECISIONS = frozenset(("pending", "rejected", "qualified"))
 _ACTIVE_STAGES = frozenset(("qualified", "submitted", "interview", "offer"))
+_APPROVED_ROLE_FAMILIES = frozenset(
+    ("forward_deployed", "ai_security", "ai_platform", "applied_ai")
+)
 _TRACKING_QUERY_KEYS = frozenset(
     ("fbclid", "gclid", "mc_cid", "mc_eid", "ref", "referrer")
 )
@@ -132,11 +137,14 @@ def evaluate_hard_gates(
     strategic_override = candidate.get("screening_reason", "").startswith(
         "strategic_override:"
     )
-    if (
-        candidate.get("role_family", "").strip().casefold() == "other"
-        and not strategic_override
-    ):
-        return HardGateResult(False, "hard_gate:role_family_other")
+    role_family = candidate.get("role_family", "").strip().casefold()
+    if role_family not in _APPROVED_ROLE_FAMILIES and not strategic_override:
+        reason = (
+            "hard_gate:role_family_other"
+            if role_family == "other"
+            else "hard_gate:role_family_not_approved"
+        )
+        return HardGateResult(False, reason)
 
     try:
         company_cap = int(config["max_active_applications_per_company"])
@@ -343,6 +351,208 @@ def _read_screening_rows(path: Path) -> list[dict[str, str]]:
         return [dict(row) for row in reader]
 
 
+def _stage_csv(
+    destination: Path,
+    columns: tuple[str, ...],
+    rows: Iterable[Mapping[str, object]],
+) -> Path:
+    materialized = [
+        {column: str(row.get(column, "")) for column in columns} for row in rows
+    ]
+    validate_rows(materialized, columns)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    staged_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            newline="",
+            encoding="utf-8",
+            dir=destination.parent,
+            prefix=".screening-stage-",
+            suffix=".csv",
+            delete=False,
+        ) as handle:
+            staged_path = Path(handle.name)
+            writer = csv.DictWriter(handle, fieldnames=columns)
+            writer.writeheader()
+            writer.writerows(materialized)
+            handle.flush()
+            os.fsync(handle.fileno())
+        return staged_path
+    except BaseException:
+        if staged_path is not None:
+            staged_path.unlink(missing_ok=True)
+        raise
+
+
+def _backup_file(path: Path) -> Path | None:
+    if not path.exists():
+        return None
+    with tempfile.NamedTemporaryFile(
+        "wb",
+        dir=path.parent,
+        prefix=".screening-backup-",
+        delete=False,
+    ) as handle:
+        backup_path = Path(handle.name)
+    try:
+        shutil.copyfile(path, backup_path)
+        with backup_path.open("rb") as handle:
+            os.fsync(handle.fileno())
+        return backup_path
+    except BaseException:
+        backup_path.unlink(missing_ok=True)
+        raise
+
+
+def _journal_path(tracker_path: Path) -> Path:
+    return tracker_path.parent / f".{tracker_path.name}.screening-transaction.json"
+
+
+def _write_journal(path: Path, payload: Mapping[str, object]) -> None:
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=".screening-journal-",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            json.dump(payload, handle, sort_keys=True)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def _restore_original(
+    destination: Path, backup_value: object, existed: bool
+) -> None:
+    if not existed:
+        destination.unlink(missing_ok=True)
+        return
+    backup = Path(str(backup_value))
+    if not backup.is_file():
+        raise RuntimeError(f"transaction backup missing for {destination}")
+    restore_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "wb",
+            dir=destination.parent,
+            prefix=".screening-restore-",
+            delete=False,
+        ) as handle:
+            restore_path = Path(handle.name)
+        shutil.copyfile(backup, restore_path)
+        os.replace(restore_path, destination)
+    finally:
+        if restore_path is not None:
+            restore_path.unlink(missing_ok=True)
+
+
+def _cleanup_transaction(journal_path: Path, journal: Mapping[str, object]) -> None:
+    journal_path.unlink(missing_ok=True)
+    for key in (
+        "tracker_stage",
+        "events_stage",
+        "tracker_backup",
+        "events_backup",
+    ):
+        value = journal.get(key)
+        if value:
+            Path(str(value)).unlink(missing_ok=True)
+
+
+def _rollback_transaction(journal_path: Path, journal: Mapping[str, object]) -> None:
+    _restore_original(
+        Path(str(journal["tracker"])),
+        journal.get("tracker_backup"),
+        bool(journal["tracker_existed"]),
+    )
+    _restore_original(
+        Path(str(journal["events"])),
+        journal.get("events_backup"),
+        bool(journal["events_existed"]),
+    )
+    _cleanup_transaction(journal_path, journal)
+
+
+def _recover_transaction(tracker_path: Path, events_path: Path) -> None:
+    journal_path = _journal_path(tracker_path)
+    if not journal_path.exists():
+        return
+    try:
+        journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"cannot recover screening transaction: {journal_path}") from exc
+    if not isinstance(journal, dict) or journal.get("version") != 1:
+        raise RuntimeError(f"invalid screening transaction journal: {journal_path}")
+    expected = (str(tracker_path.resolve()), str(events_path.resolve()))
+    recorded = (str(journal.get("tracker")), str(journal.get("events")))
+    if recorded != expected:
+        raise RuntimeError(
+            f"screening transaction journal destinations differ: {journal_path}"
+        )
+    _rollback_transaction(journal_path, journal)
+
+
+def _write_ledgers_transaction(
+    tracker_path: Path,
+    applications: Iterable[Mapping[str, object]],
+    events_path: Path,
+    events: Iterable[Mapping[str, object]],
+) -> None:
+    tracker_rows = list(applications)
+    event_rows = list(events)
+    validate_rows(tracker_rows, TRACKER_COLUMNS, unique_key="application_id")
+    validate_rows(event_rows, EVENT_COLUMNS, unique_key="event_id")
+    tracker_stage: Path | None = None
+    events_stage: Path | None = None
+    tracker_backup: Path | None = None
+    events_backup: Path | None = None
+    journal_path = _journal_path(tracker_path)
+    journal: dict[str, object] | None = None
+    try:
+        tracker_stage = _stage_csv(tracker_path, TRACKER_COLUMNS, tracker_rows)
+        events_stage = _stage_csv(events_path, EVENT_COLUMNS, event_rows)
+        tracker_backup = _backup_file(tracker_path)
+        events_backup = _backup_file(events_path)
+        journal = {
+            "version": 1,
+            "tracker": str(tracker_path.resolve()),
+            "events": str(events_path.resolve()),
+            "tracker_stage": str(tracker_stage),
+            "events_stage": str(events_stage),
+            "tracker_backup": str(tracker_backup) if tracker_backup else "",
+            "events_backup": str(events_backup) if events_backup else "",
+            "tracker_existed": tracker_path.exists(),
+            "events_existed": events_path.exists(),
+        }
+        _write_journal(journal_path, journal)
+        try:
+            os.replace(tracker_stage, tracker_path)
+            os.replace(events_stage, events_path)
+        except Exception:
+            _rollback_transaction(journal_path, journal)
+            raise
+        _cleanup_transaction(journal_path, journal)
+    except BaseException:
+        if journal is None:
+            for path in (
+                tracker_stage,
+                events_stage,
+                tracker_backup,
+                events_backup,
+            ):
+                if path is not None:
+                    path.unlink(missing_ok=True)
+        raise
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("input", type=Path)
@@ -350,6 +560,7 @@ def main() -> None:
     parser.add_argument("--events", type=Path, required=True)
     parser.add_argument("--config", type=Path, default=_DEFAULT_CONFIG_PATH)
     args = parser.parse_args()
+    _recover_transaction(args.tracker, args.events)
 
     applications = read_csv_rows(args.tracker, TRACKER_COLUMNS)
     existing_events = (
@@ -366,8 +577,9 @@ def main() -> None:
     )
     validate_rows(updated_applications, TRACKER_COLUMNS, unique_key="application_id")
     validate_rows(updated_events, EVENT_COLUMNS, unique_key="event_id")
-    write_csv_atomic(args.tracker, TRACKER_COLUMNS, updated_applications)
-    write_csv_atomic(args.events, EVENT_COLUMNS, updated_events)
+    _write_ledgers_transaction(
+        args.tracker, updated_applications, args.events, updated_events
+    )
     print(json.dumps(dataclasses.asdict(summary), sort_keys=True))
 
 

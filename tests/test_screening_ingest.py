@@ -1,12 +1,17 @@
 import csv
+import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
 from datetime import datetime, timezone
+from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
+import analytics.screening as screening
 from analytics.model import EVENT_COLUMNS, TRACKER_COLUMNS
 from analytics.screening import (
     SCREENING_COLUMNS,
@@ -196,6 +201,31 @@ class ScreeningIngestTests(unittest.TestCase):
         self.assertTrue(passed.passed)
         self.assertEqual(passed.reason, "")
 
+    def test_blank_and_unknown_role_families_require_strategic_override(self):
+        for role_family in ("", "finance"):
+            with self.subTest(role_family=role_family):
+                applications, _, summary = ingest_screening_rows(
+                    [candidate(role_family=role_family)], [], [], NOW, config=CONFIG
+                )
+                self.assertEqual(
+                    applications[0]["screening_decision"], "rejected"
+                )
+                self.assertEqual(
+                    applications[0]["screening_reason"],
+                    "hard_gate:role_family_not_approved",
+                )
+                self.assertEqual(summary.rejected, 1)
+
+                gate = evaluate_hard_gates(
+                    candidate(
+                        role_family=role_family,
+                        screening_reason="strategic_override: adjacent strategic role",
+                    ),
+                    [],
+                    CONFIG,
+                )
+                self.assertTrue(gate.passed)
+
     def test_company_cap_requires_strategic_override(self):
         existing = [active_application(1), active_application(2)]
         applications, _, summary = ingest_screening_rows(
@@ -278,6 +308,104 @@ class ScreeningIngestTests(unittest.TestCase):
                 {"discovered", "screened", "qualified"},
             )
             self.assertNotIn("submitted", {event["event_type"] for event in events})
+
+    def test_cli_rolls_back_both_ledgers_when_second_replace_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            input_path = root / "screening.csv"
+            tracker_path = root / "tracker.csv"
+            events_path = root / "events.csv"
+            for path, columns, rows in (
+                (input_path, SCREENING_COLUMNS, [candidate()]),
+                (tracker_path, TRACKER_COLUMNS, []),
+                (events_path, EVENT_COLUMNS, []),
+            ):
+                with path.open("w", newline="", encoding="utf-8") as handle:
+                    writer = csv.DictWriter(handle, fieldnames=columns)
+                    writer.writeheader()
+                    writer.writerows(rows)
+            original_tracker = tracker_path.read_bytes()
+            original_events = events_path.read_bytes()
+            real_replace = os.replace
+
+            def fail_second_destination(source, destination):
+                if (
+                    Path(destination) == events_path
+                    and Path(source).name.startswith(".screening-stage-")
+                ):
+                    raise OSError("forced second destination failure")
+                return real_replace(source, destination)
+
+            argv = [
+                "analytics.screening",
+                str(input_path),
+                "--tracker",
+                str(tracker_path),
+                "--events",
+                str(events_path),
+            ]
+            with patch.object(sys, "argv", argv), patch.object(
+                screening.os, "replace", side_effect=fail_second_destination
+            ):
+                with self.assertRaisesRegex(OSError, "forced second destination"):
+                    screening.main()
+
+            self.assertEqual(tracker_path.read_bytes(), original_tracker)
+            self.assertEqual(events_path.read_bytes(), original_events)
+            self.assertEqual(list(root.glob("*.screening-transaction.json")), [])
+
+    def test_cli_recovers_interrupted_transaction_on_next_invocation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            input_path = root / "screening.csv"
+            tracker_path = root / "tracker.csv"
+            events_path = root / "events.csv"
+            for path, columns, rows in (
+                (input_path, SCREENING_COLUMNS, [candidate()]),
+                (tracker_path, TRACKER_COLUMNS, []),
+                (events_path, EVENT_COLUMNS, []),
+            ):
+                with path.open("w", newline="", encoding="utf-8") as handle:
+                    writer = csv.DictWriter(handle, fieldnames=columns)
+                    writer.writeheader()
+                    writer.writerows(rows)
+            original_events = events_path.read_bytes()
+            real_replace = os.replace
+
+            def interrupt_after_first_destination(source, destination):
+                if (
+                    Path(destination) == tracker_path
+                    and Path(source).name.startswith(".screening-stage-")
+                ):
+                    real_replace(source, destination)
+                    raise KeyboardInterrupt
+                return real_replace(source, destination)
+
+            argv = [
+                "analytics.screening",
+                str(input_path),
+                "--tracker",
+                str(tracker_path),
+                "--events",
+                str(events_path),
+            ]
+            with patch.object(sys, "argv", argv), patch.object(
+                screening.os, "replace", side_effect=interrupt_after_first_destination
+            ):
+                with self.assertRaises(KeyboardInterrupt):
+                    screening.main()
+            self.assertEqual(events_path.read_bytes(), original_events)
+            self.assertTrue(list(root.glob("*.screening-transaction.json")))
+
+            with patch.object(sys, "argv", argv), redirect_stdout(io.StringIO()):
+                screening.main()
+            with tracker_path.open(newline="", encoding="utf-8") as handle:
+                applications = list(csv.DictReader(handle))
+            with events_path.open(newline="", encoding="utf-8") as handle:
+                events = list(csv.DictReader(handle))
+            self.assertEqual(len(applications), 1)
+            self.assertEqual(len(events), 3)
+            self.assertEqual(list(root.glob("*.screening-transaction.json")), [])
 
 
 if __name__ == "__main__":
