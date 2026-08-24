@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from copy import deepcopy
 import json
+import math
 import re
 import subprocess
 from collections.abc import Mapping, Sequence
@@ -48,14 +48,34 @@ class MatchResult:
     score: float
     reason: str
 
-def _freeze(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
-    if isinstance(value, (list, tuple)):
-        return tuple(_freeze(item) for item in value)
-    if isinstance(value, (set, frozenset)):
-        return frozenset(_freeze(item) for item in value)
-    return deepcopy(value)
+def _freeze(value: Any, active: set[int] | None = None) -> Any:
+    if value is None or type(value) in (bool, int, str):
+        return value
+    if type(value) is float:
+        if not math.isfinite(value):
+            raise TypeError("SyncProposal floats must be finite")
+        return value
+
+    if active is None:
+        active = set()
+    if isinstance(value, (Mapping, list, tuple, set, frozenset)):
+        marker = id(value)
+        if marker in active:
+            raise TypeError("SyncProposal values must be acyclic and JSON-like")
+        active.add(marker)
+        try:
+            if isinstance(value, Mapping):
+                if any(not isinstance(key, str) for key in value):
+                    raise TypeError("SyncProposal mapping keys must be JSON-like strings")
+                return MappingProxyType(
+                    {key: _freeze(item, active) for key, item in value.items()}
+                )
+            if isinstance(value, (list, tuple)):
+                return tuple(_freeze(item, active) for item in value)
+            return frozenset(_freeze(item, active) for item in value)
+        finally:
+            active.remove(marker)
+    raise TypeError(f"SyncProposal values must be JSON-like, not {type(value).__name__}")
 
 
 @dataclass(frozen=True)
@@ -102,14 +122,30 @@ _SENSITIVE_VALUE = re.compile(
 )
 _PHONE = re.compile(r"(?<!\w)(?:\+?\d[\d ()-]{7,}\d)(?!\w)")
 _WHITESPACE = re.compile(r"\s+")
+_UNAMBIGUOUS_SECRET_LABELS = frozenset(
+    {
+        "access token", "one time code", "one time password", "otp", "passcode",
+        "pin", "verification code",
+    }
+)
+_AMBIGUOUS_PROSE_PREDICATES = frozenset(
+    {"available", "invalid", "optional", "required", "reviewed", "unavailable", "valid"}
+)
 
 
 def _redact_sensitive_value(match: re.Match[str]) -> str:
+    label = " ".join(match.group("label").casefold().replace("-", " ").split())
     value = match.group("value")
+    predicate = value.rstrip(".,;!?").casefold()
     separator = match.group("separator").strip().casefold()
-    if separator == "is" and value.isalpha() and value.islower():
+    if (
+        label not in _UNAMBIGUOUS_SECRET_LABELS
+        and separator == "is"
+        and predicate in _AMBIGUOUS_PROSE_PREDICATES
+    ):
         return match.group(0)
-    return f"{match.group('label')} [removed]"
+    trailing_punctuation = value[len(value.rstrip(".,;!?")) :]
+    return f"{match.group('label')} [removed]{trailing_punctuation}"
 
 
 _REJECTION_PATTERNS = (
@@ -341,9 +377,7 @@ def _extract_role(message: Mapping[str, object], body: str, subject: str) -> str
     for pattern in body_patterns:
         match = pattern.search(body)
         if match:
-            candidate = _sanitize_text(match.group(1), 200).strip(" ,.-")
-            if _looks_like_role(candidate):
-                return candidate
+            return _sanitize_text(match.group(1), 200).strip(" ,.-")
 
     standalone = re.match(r"(?i)^(.{2,120}?)\.\s+(?=we\b)", body)
     if standalone:

@@ -307,6 +307,57 @@ class GmailReconciliationTests(unittest.TestCase):
             "role": "Platform Engineer",
         }).subject)
 
+    def test_lowercase_assignments_are_scrubbed_from_every_external_text_field(self):
+        secrets = (
+            "subjectsecret",
+            "sendersecret",
+            "timestampsecret",
+            "bodysecret",
+            "companysecret",
+            "rolesecret",
+            "fixture-lowercase-source-secret",
+        )
+        signal = classify_message({
+            "subject": "Application update access token is subjectsecret",
+            "sender": "ExampleCo Talent passcode is sendersecret",
+            "messageTimestamp": "OTP is timestampsecret",
+            "messageText": "We will not progress. token is bodysecret.",
+            "messageId": "fixture-lowercase-source-secret",
+            "company": "ExampleCo code is companysecret",
+            "role": "Platform Engineer PIN is rolesecret",
+        })
+        held_text = tuple(
+            getattr(signal, name)
+            for name in signal.__dataclass_fields__
+            if isinstance(getattr(signal, name), str)
+        )
+        for secret in secrets:
+            with self.subTest(secret=secret):
+                self.assertFalse(any(secret in value for value in held_text))
+
+    def test_punctuated_prose_predicate_is_preserved_across_external_text_fields(self):
+        signal = classify_message({
+            "subject": "Application update. code is reviewed.",
+            "sender": "ExampleCo Talent token is reviewed.",
+            "messageTimestamp": "code is reviewed.",
+            "messageText": "We will not progress. code is reviewed.",
+            "messageId": "fixture-punctuated-prose",
+            "company": "ExampleCo code is reviewed.",
+            "role": "Platform Engineer token is reviewed.",
+        })
+        held = (
+            signal.subject,
+            signal.sender,
+            signal.occurred_at,
+            signal.excerpt,
+            signal.company,
+            signal.role,
+        )
+        for value in held:
+            with self.subTest(value=value):
+                self.assertIn("reviewed.", value)
+
+
 
     def test_unrelated_newsletter_is_ignored(self):
         self.assertIsNone(classify_message(self.by_case["unrelated_newsletter"]))
@@ -334,6 +385,54 @@ class GmailReconciliationTests(unittest.TestCase):
         })
         self.assertEqual(signal.company, "aster labs")
         self.assertEqual(signal.role, "Applied AI Engineer")
+
+    def test_explicit_body_role_patterns_preserve_non_marker_roles(self):
+        roles = ("Head of Product", "Chief of Staff", "Product Designer", "Account Executive")
+        for index, role in enumerate(roles):
+            with self.subTest(role=role):
+                signal = classify_message({
+                    "subject": "Application update",
+                    "sender": "Northstar Talent",
+                    "messageTimestamp": "2026-08-24T10:00:00Z",
+                    "messageText": f"We will not progress with your application for {role}.",
+                    "messageId": f"fixture-explicit-role-{index}",
+                })
+                self.assertEqual(signal.role, role)
+
+    def test_explicit_head_of_product_uniquely_matches_but_role_free_mail_is_ambiguous(self):
+        applications = [
+            {
+                "application_id": "head",
+                "company": "Northstar",
+                "role": "Head of Product",
+                "discovered_at": "2026-08-20",
+            },
+            {
+                "application_id": "chief",
+                "company": "Northstar",
+                "role": "Chief of Staff",
+                "discovered_at": "2026-08-20",
+            },
+        ]
+        explicit = classify_message({
+            "subject": "Application update",
+            "sender": "Northstar Talent",
+            "messageTimestamp": "2026-08-24T10:00:00Z",
+            "messageText": "We will not progress with your application for Head of Product.",
+            "messageId": "fixture-head-product",
+        })
+        ambiguous = classify_message({
+            "subject": "Application update",
+            "sender": "Northstar Talent",
+            "messageTimestamp": "2026-08-24T10:00:00Z",
+            "messageText": "We will not progress.",
+            "messageId": "fixture-northstar-ambiguous",
+        })
+        self.assertEqual(match_application(explicit, applications).application_id, "head")
+        ambiguous_result = match_application(ambiguous, applications)
+        self.assertIsNone(ambiguous_result.application_id)
+        self.assertEqual(set(ambiguous_result.candidates), {"head", "chief"})
+
 
 
     def test_taktile_us_role_matches_unique_berlin_london_application(self):
@@ -416,10 +515,10 @@ class GmailReconciliationTests(unittest.TestCase):
 
     def test_sync_proposal_recursively_freezes_defensive_copies(self):
         source_rows = [
-            {"kind": "event", "nested": {"items": ["event"]}},
-            {"kind": "feedback", "nested": {"items": ["feedback"]}},
-            {"kind": "tracker", "nested": {"items": ["tracker"]}},
-            {"kind": "review", "nested": {"items": ["review"]}},
+            {"kind": "event", "nested": {"items": ["event"], "flags": {"event"}}},
+            {"kind": "feedback", "nested": {"items": ["feedback"], "flags": {"feedback"}}},
+            {"kind": "tracker", "nested": {"items": ["tracker"], "flags": {"tracker"}}},
+            {"kind": "review", "nested": {"items": ["review"], "flags": {"review"}}},
         ]
         checkpoint = {"cursor": {"refs": ["source"]}}
         proposal = SyncProposal(
@@ -433,6 +532,7 @@ class GmailReconciliationTests(unittest.TestCase):
         for row in source_rows:
             row["nested"]["items"][0] = "changed"
             row["nested"]["items"].append("added")
+            row["nested"]["flags"].add("changed")
         checkpoint["cursor"]["refs"][0] = "changed"
 
         held_rows = (
@@ -445,6 +545,16 @@ class GmailReconciliationTests(unittest.TestCase):
             [row["nested"]["items"] for row in held_rows],
             [("event",), ("feedback",), ("tracker",), ("review",)],
         )
+        self.assertEqual(
+            [row["nested"]["flags"] for row in held_rows],
+            [
+                frozenset({"event"}),
+                frozenset({"feedback"}),
+                frozenset({"tracker"}),
+                frozenset({"review"}),
+            ],
+        )
+
         self.assertEqual(proposal.checkpoint["cursor"]["refs"], ("source",))
         for row in held_rows:
             with self.assertRaises(TypeError):
@@ -455,6 +565,42 @@ class GmailReconciliationTests(unittest.TestCase):
                 row["nested"]["items"].append("value")
         with self.assertRaises(TypeError):
             proposal.checkpoint["cursor"] = {}
+
+    def test_sync_proposal_rejects_non_json_leaves_in_every_payload_field(self):
+        class CustomLeaf:
+            pass
+
+        fields = ("events", "feedback", "tracker_updates", "review_items", "checkpoint")
+        leaves = (bytearray(b"secret"), CustomLeaf())
+        for field_name in fields:
+            for leaf in leaves:
+                with self.subTest(field=field_name, leaf=type(leaf).__name__):
+                    values = {
+                        "events": (),
+                        "feedback": (),
+                        "tracker_updates": (),
+                        "review_items": (),
+                        "checkpoint": {},
+                    }
+                    if field_name == "checkpoint":
+                        values[field_name] = {"unsupported": leaf}
+                    else:
+                        values[field_name] = ({"unsupported": leaf},)
+                    with self.assertRaisesRegex(TypeError, "JSON-like"):
+                        SyncProposal(**values)
+
+    def test_sync_proposal_accepts_json_scalars_and_rejects_nonfinite_float(self):
+        proposal = SyncProposal(
+            ({"values": [None, True, 1, 1.5, "value"]},),
+            (),
+            (),
+            (),
+            {"ok": True},
+        )
+        self.assertEqual(proposal.events[0]["values"], (None, True, 1, 1.5, "value"))
+        with self.assertRaisesRegex(TypeError, "finite"):
+            SyncProposal(({"value": float("nan")},), (), (), (), {})
+
 
 
     def test_fixtures_are_sanitized_and_complete_for_task_matrix(self):
