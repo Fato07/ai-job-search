@@ -299,6 +299,13 @@ class FeedbackRuleSelectionTests(unittest.TestCase):
                 source_ref="source-all",
             ),
             event(
+                feedback_id="fb-b2b",
+                category="logistics_work_authorization",
+                required_action="Use the matching B2B delivery model.",
+                scope='{"employment_model":"b2b","geography":"EEA","role_family":"applied_ai","seniority":"senior","stage":"application"}',
+                source_ref="source-b2b",
+            ),
+            event(
                 feedback_id="fb-wrong-stage",
                 category="ml_genai_evaluation",
                 required_action="Use evaluation evidence.",
@@ -322,12 +329,13 @@ class FeedbackRuleSelectionTests(unittest.TestCase):
             {rule["source_feedback_ids"][0] for rule in selected},
             {"fb-all", "fb-global"},
         )
+        b2b_selected = select_rules(
+            rules,
+            RuleContext("applied_ai", "senior", "EEA", "application", "b2b"),
+        )
         self.assertEqual(
-            select_rules(
-                rules,
-                RuleContext("applied_ai", "senior", "EEA", "application", "b2b"),
-            )[0]["source_feedback_ids"],
-            ["fb-global"],
+            {rule["source_feedback_ids"][0] for rule in b2b_selected},
+            {"fb-b2b", "fb-global"},
         )
         self.assertEqual(
             select_rules(
