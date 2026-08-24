@@ -25,6 +25,38 @@ class LifecycleEventTests(unittest.TestCase):
             ["discovered", "submitted", "rejected"],
         )
 
+    def test_note_only_clear_rejection_outcomes_create_rejected_events(self):
+        applications = [
+            {
+                "application_id": application_id,
+                "discovered_at": "2026-08-20",
+                "submitted_at": "",
+                "status_updated_at": "2026-08-20",
+                "stage": "prospect",
+                "status": "OPEN",
+                "notes": notes,
+            }
+            for application_id, notes in (
+                ("app-passive", "Application was rejected 2026-08-21."),
+                (
+                    "app-active",
+                    "The hiring team rejected the candidate 2026-08-22.",
+                ),
+            )
+        ]
+        rejected = [
+            (event["application_id"], event["occurred_at"])
+            for event in backfill_events(applications, NOW)
+            if event["event_type"] == "rejected"
+        ]
+        self.assertEqual(
+            rejected,
+            [
+                ("app-passive", "2026-08-21T00:00:00Z"),
+                ("app-active", "2026-08-22T00:00:00Z"),
+            ],
+        )
+
     def test_dated_note_event_requires_phrase_and_date_in_same_sentence(self):
         application = {
             "application_id": "app-1",

@@ -21,7 +21,16 @@ from analytics.model import (
 _SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])(?:\s+|$)|\n+")
 _ISO_DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 _REJECTION_EVIDENCE = re.compile(
-    r"\brejected by\b|\brejection (?:email )?(?:was )?received\b",
+    r"\brejected by\b"
+    r"|\brejection (?:email )?(?:was )?received\b"
+    r"|\b(?:application|submission|candidate|candidacy) "
+    r"(?:was |has been )?rejected\b"
+    r"|\b(?:hiring )?(?:team|company|employer|recruiter) rejected "
+    r"(?:the |your )?(?:application|submission|candidate|candidacy)\b"
+    r"|\b(?:will not|won't|did not|does not) (?:move forward|proceed) "
+    r"with (?:the |your )?(?:application|submission|candidate|candidacy)\b"
+    r"|\b(?:application|submission|candidate|candidacy) "
+    r"(?:will not|won't|did not|does not) (?:move forward|proceed)\b",
     re.IGNORECASE,
 )
 _VIEWED_EVIDENCE = re.compile(
