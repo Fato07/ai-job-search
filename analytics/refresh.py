@@ -346,7 +346,10 @@ def refresh(
 ) -> RefreshSummary:
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
-    recover_transaction(paths.journal, paths.mutable_files())
+    if dry_run and paths.journal.exists():
+        raise RuntimeError("dry-run transaction recovery required")
+    if not dry_run:
+        recover_transaction(paths.journal, paths.mutable_files())
     current = _load_state(paths)
 
     discovery = MailboxDiscovery(

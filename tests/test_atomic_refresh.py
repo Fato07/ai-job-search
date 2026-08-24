@@ -14,6 +14,8 @@ from analytics.gmail_sync import (
     ComposioError,
     MailboxDiscovery,
     SyncProposal,
+    _scan_queries,
+    classify_message,
 )
 from analytics.model import (
     EVENT_COLUMNS,
@@ -116,6 +118,55 @@ class MissingBulkBodyClient(ConcurrentMailboxClient):
             self.failed_once.add(data["message_id"])
             raise ComposioError("Composio command timed out")
         return super().execute(slug, data)
+
+
+class FakeClock:
+    def __init__(self):
+        self.value = 0.0
+
+    def __call__(self):
+        return self.value
+
+    def advance(self, seconds):
+        self.value += seconds
+
+
+class DeadlineMailboxClient(RecordingMailboxClient):
+    def __init__(self, messages, clock):
+        super().__init__(messages)
+        self.clock = clock
+
+    def execute(self, slug, data):
+        result = super().execute(slug, data)
+        if slug == "GMAIL_FETCH_EMAILS":
+            self.clock.advance(301)
+        return result
+
+
+class EndlessPageMailboxClient(RecordingMailboxClient):
+    def __init__(self):
+        super().__init__([])
+        self.page = 0
+
+    def execute(self, slug, data):
+        if slug != "GMAIL_FETCH_EMAILS":
+            return super().execute(slug, data)
+        self.calls.append((slug, dict(data)))
+        self.page += 1
+        return {
+            "data": {
+                "messages": [],
+                "nextPageToken": f"page-{self.page}",
+            }
+        }
+
+
+class UnavailableBodyMailboxClient(MissingBulkBodyClient):
+    def execute(self, slug, data):
+        result = super().execute(slug, data)
+        if slug == "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID":
+            result["data"].pop("messageText", None)
+        return result
 
 class AtomicRefreshTests(unittest.TestCase):
     def _paths(self, root):
@@ -302,6 +353,127 @@ class AtomicRefreshTests(unittest.TestCase):
             self.assertEqual(self._snapshot(paths), before)
             self.assertFalse(paths.journal.exists())
 
+    def test_dry_run_with_interrupted_journal_changes_no_transaction_byte(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._paths(Path(tmp))
+            message = self._message(
+                "dry-recovery-id",
+                body="We received your application for the Applied AI Engineer role.",
+                subject="Application received",
+            )
+            real_replace = os.replace
+            destinations = {path.resolve() for path in paths.mutable_files()}
+            replaced = 0
+
+            def interrupt_after_one_destination(source, destination):
+                nonlocal replaced
+                destination = Path(destination)
+                if destination in destinations:
+                    replaced += 1
+                    if replaced == 2:
+                        raise KeyboardInterrupt()
+                return real_replace(source, destination)
+
+            with patch(
+                "analytics.transaction.os.replace",
+                side_effect=interrupt_after_one_destination,
+            ):
+                with self.assertRaises(KeyboardInterrupt):
+                    refresh(
+                        paths,
+                        client=RecordingMailboxClient([message]),
+                        sync_gmail=True,
+                        now=FIXED_NOW,
+                    )
+            journal = json.loads(paths.journal.read_text(encoding="utf-8"))
+            transaction_paths = [*paths.mutable_files(), paths.journal]
+            transaction_paths.extend(
+                Path(entry[key])
+                for entry in journal["entries"]
+                for key in ("backup", "staged")
+                if entry.get(key) and Path(entry[key]).exists()
+            )
+            before = {path: path.read_bytes() for path in transaction_paths}
+
+            with self.assertRaisesRegex(RuntimeError, "recovery required"):
+                refresh(
+                    paths,
+                    client=None,
+                    sync_gmail=False,
+                    now=FIXED_NOW,
+                    dry_run=True,
+                )
+
+            self.assertEqual(
+                {path: path.read_bytes() for path in transaction_paths},
+                before,
+            )
+
+    def test_discovery_queries_cover_classifier_ats_and_tracked_company_paths(self):
+        application = {
+            "application_id": "app-1",
+            "discovered_at": "2026-08-10",
+            "company": "TestCo",
+        }
+        queries = _scan_queries([application], {"last_successful_at": None})
+        combined = " ".join(queries).casefold()
+        supported = (
+            ("We decided not to move forward.", "decided not to move forward"),
+            ("We have decided not to proceed.", "decided not to proceed"),
+            (
+                "We have chosen to move forward with other candidates.",
+                "move forward with other candidates",
+            ),
+            ("We will not progress with your application.", "will not progress"),
+            ("Your application was not selected.", "application was not selected"),
+            ("We received your application.", "received your application"),
+            ("Thank you for applying.", "thank you for applying"),
+            ("Interview invitation.", "interview invitation"),
+            ("Please schedule your interview.", "schedule your interview"),
+            ("We would like to speak with you.", "would like to speak with you"),
+        )
+        for body, query_term in supported:
+            message = self._message("coverage-id", body=body)
+            self.assertIsNotNone(classify_message(message), body)
+            self.assertIn(query_term, combined)
+        self.assertIn("from:ashby", combined)
+        self.assertIn('"testco"', combined)
+        for subject_term in (
+            "your application",
+            "application status",
+            "thanks for your interest",
+            "thank you for applying",
+            "job application",
+            "application at",
+            "application to",
+            "next steps",
+            "interview",
+            "assessment",
+            "offer",
+        ):
+            self.assertIn(f"subject:{subject_term}", combined.replace('"', ""))
+        self.assertIn("-from:jobalerts-noreply@linkedin.com", combined)
+
+
+    def test_union_queries_deduplicate_the_same_hashed_source_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._paths(Path(tmp))
+            message = self._message(
+                "union-id",
+                body="We received your application for the Applied AI Engineer role.",
+                subject="Application received",
+            )
+            client = RecordingMailboxClient([message])
+
+            summary = refresh(paths, client=client, sync_gmail=True, now=FIXED_NOW)
+
+            self.assertEqual((summary.scanned, summary.matched), (1, 1))
+            self.assertGreater(
+                sum(slug == "GMAIL_FETCH_EMAILS" for slug, _ in client.calls),
+                1,
+            )
+
+
     def test_first_scan_starts_at_earliest_discovery_and_fetches_candidates_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             paths = self._paths(Path(tmp))
@@ -325,12 +497,12 @@ class AtomicRefreshTests(unittest.TestCase):
             list_calls = [
                 data for slug, data in client.calls if slug == "GMAIL_FETCH_EMAILS"
             ]
-            self.assertEqual(len(list_calls), 1)
+            self.assertGreater(len(list_calls), 1)
             self.assertTrue(list_calls[0]["query"].startswith("after:2026/08/09 "))
-            self.assertIn('{"application received"', list_calls[0]["query"])
-            self.assertEqual(list_calls[0]["max_results"], 500)
-            self.assertTrue(list_calls[0]["verbose"])
-            self.assertFalse(list_calls[0]["include_payload"])
+            for call in list_calls:
+                self.assertEqual(call["max_results"], 500)
+                self.assertTrue(call["verbose"])
+                self.assertFalse(call["include_payload"])
             self.assertFalse(
                 any(
                     slug == "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID"
@@ -351,6 +523,10 @@ class AtomicRefreshTests(unittest.TestCase):
                 body="We received your application for the Applied AI Engineer role.",
                 subject="Application received",
             )
+            first["messageId"] = "message_id"
+            first["display_url"] = "https://mail.google.com/mail/u/0/#inbox/source-one"
+            second["messageId"] = "message_id"
+            second["display_url"] = "https://mail.google.com/mail/u/0/#inbox/source-two"
             client = PaginatedMailboxClient(
                 [([first], "next-page"), ([first, second], "")]
             )
@@ -361,9 +537,13 @@ class AtomicRefreshTests(unittest.TestCase):
             list_calls = [
                 data for slug, data in client.calls if slug == "GMAIL_FETCH_EMAILS"
             ]
-            self.assertEqual(len(list_calls), 2)
-            self.assertNotIn("page_token", list_calls[0])
-            self.assertEqual(list_calls[1]["page_token"], "next-page")
+            self.assertGreater(len(list_calls), 2)
+            first_pages = [call for call in list_calls if "page_token" not in call]
+            next_pages = [
+                call for call in list_calls if call.get("page_token") == "next-page"
+            ]
+            self.assertEqual(len(first_pages), len(next_pages))
+            self.assertGreater(len(first_pages), 1)
             self.assertFalse(
                 any(
                     slug == "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID"
@@ -381,7 +561,7 @@ class AtomicRefreshTests(unittest.TestCase):
                         "We decided not to move forward. "
                         "This role cannot sponsor work authorization."
                     ),
-                    subject="We decided not to move forward",
+                    subject="Application update",
                 )
                 for index in range(4)
             ]
@@ -452,8 +632,9 @@ class AtomicRefreshTests(unittest.TestCase):
                 messages, {message["messageId"] for message in messages}
             )
 
-            with self.assertRaisesRegex(ComposioError, "fallback limit"):
-                refresh(paths, client=client, sync_gmail=True, now=FIXED_NOW)
+            with patch("analytics.gmail_sync._MAX_FALLBACK_MESSAGES", 8):
+                with self.assertRaisesRegex(ComposioError, "fallback limit"):
+                    refresh(paths, client=client, sync_gmail=True, now=FIXED_NOW)
 
             self.assertFalse(
                 any(
@@ -461,6 +642,74 @@ class AtomicRefreshTests(unittest.TestCase):
                     for slug, _ in client.calls
                 )
             )
+
+    def test_unavailable_candidate_body_does_not_advance_checkpoint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._paths(Path(tmp))
+            before_checkpoint = paths.checkpoint.read_bytes()
+            message = self._message(
+                "unavailable-id",
+                body="We decided not to move forward.",
+                subject="Application update",
+            )
+            client = UnavailableBodyMailboxClient([message], {"unavailable-id"})
+
+            with self.assertRaisesRegex(ComposioError, "content unavailable"):
+                refresh(paths, client=client, sync_gmail=True, now=FIXED_NOW)
+
+            self.assertEqual(paths.checkpoint.read_bytes(), before_checkpoint)
+
+
+    def test_refresh_deadline_uses_one_monotonic_budget(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._paths(Path(tmp))
+            before_checkpoint = paths.checkpoint.read_bytes()
+            clock = FakeClock()
+            client = DeadlineMailboxClient([], clock)
+
+            with patch("analytics.gmail_sync.time.monotonic", side_effect=clock):
+                with self.assertRaisesRegex(ComposioError, "deadline"):
+                    refresh(paths, client=client, sync_gmail=True, now=FIXED_NOW)
+
+            self.assertEqual(paths.checkpoint.read_bytes(), before_checkpoint)
+
+
+    def test_page_ceiling_fails_without_advancing_checkpoint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._paths(Path(tmp))
+            before_checkpoint = paths.checkpoint.read_bytes()
+            client = EndlessPageMailboxClient()
+
+            with patch("analytics.gmail_sync._MAX_QUERY_PAGES", 2):
+                with self.assertRaisesRegex(ComposioError, "page limit"):
+                    refresh(paths, client=client, sync_gmail=True, now=FIXED_NOW)
+
+            self.assertEqual(paths.checkpoint.read_bytes(), before_checkpoint)
+
+
+    def test_message_ceiling_fails_without_advancing_checkpoint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._paths(Path(tmp))
+            before_checkpoint = paths.checkpoint.read_bytes()
+            messages = [
+                self._message(
+                    f"ceiling-id-{index}",
+                    body="We received your application.",
+                    subject="Application received",
+                )
+                for index in range(3)
+            ]
+
+            with patch("analytics.gmail_sync._MAX_DISCOVERED_MESSAGES", 2):
+                with self.assertRaisesRegex(ComposioError, "message limit"):
+                    refresh(
+                        paths,
+                        client=RecordingMailboxClient(messages),
+                        sync_gmail=True,
+                        now=FIXED_NOW,
+                    )
+
+            self.assertEqual(paths.checkpoint.read_bytes(), before_checkpoint)
 
     def test_incremental_scan_overlaps_seven_days(self):
         with tempfile.TemporaryDirectory() as tmp:
