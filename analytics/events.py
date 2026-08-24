@@ -18,6 +18,22 @@ from analytics.model import (
     write_csv_atomic,
 )
 
+EVENT_TYPES = frozenset(
+    {
+        "discovered",
+        "submitted",
+        "received",
+        "interview",
+        "rejected",
+        "offer",
+        "viewed",
+        "follow_up",
+    }
+)
+EVENT_SOURCES = frozenset({"tracker_backfill", "employer_email"})
+_SHA256 = re.compile(r"[0-9a-f]{64}")
+_EVENT_ID = re.compile(r"evt-[0-9a-f]{64}")
+
 _SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])(?:\s+|$)|\n+")
 _ISO_DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 _REJECTION_EVIDENCE = re.compile(
@@ -120,6 +136,66 @@ def event_id(
 ) -> str:
     material = "\x1f".join((application_id, event_type, occurred_at, source_ref))
     return f"evt-{hashlib.sha256(material.encode('utf-8')).hexdigest()}"
+
+
+def validate_event(event: Mapping[str, str], application_ids: set[str]) -> None:
+    if set(event) != set(EVENT_COLUMNS):
+        raise ValueError("event columns differ from schema")
+    if any(not isinstance(event[column], str) for column in EVENT_COLUMNS):
+        raise ValueError("event fields must be strings")
+    if not _EVENT_ID.fullmatch(event["event_id"]):
+        raise ValueError("event_id must be a stable SHA-256 identifier")
+    if event["application_id"] not in application_ids:
+        raise ValueError(
+            f"event {event['event_id']!r} has unknown application_id "
+            f"{event['application_id']!r}"
+        )
+    for name in ("occurred_at", "created_at"):
+        value = event[name]
+        if not value.endswith("Z"):
+            raise ValueError(f"{name} must be an ISO-8601 UTC timestamp")
+        try:
+            datetime.fromisoformat(value[:-1] + "+00:00")
+        except ValueError as exc:
+            raise ValueError(f"{name} must be an ISO-8601 UTC timestamp") from exc
+    if event["event_type"] not in EVENT_TYPES:
+        raise ValueError(f"invalid event_type: {event['event_type']!r}")
+    if event["source"] not in EVENT_SOURCES:
+        raise ValueError(f"invalid event source: {event['source']!r}")
+    if len(event["detail"]) > 280:
+        raise ValueError("event detail exceeds 280 characters")
+    if not _SHA256.fullmatch(event["source_ref"]):
+        raise ValueError("source_ref must be a SHA-256 hash")
+    if event["event_id"] != event_id(
+        event["application_id"],
+        event["event_type"],
+        event["occurred_at"],
+        event["source_ref"],
+    ):
+        raise ValueError("event_id does not match its identity fields")
+
+
+def mail_event(
+    *,
+    application_id: str,
+    occurred_at: str,
+    event_type: str,
+    detail: str,
+    source_ref: str,
+    created_at: str,
+) -> dict[str, str]:
+    row = {
+        "event_id": event_id(application_id, event_type, occurred_at, source_ref),
+        "application_id": application_id,
+        "occurred_at": occurred_at,
+        "event_type": event_type,
+        "source": "employer_email",
+        "detail": detail,
+        "source_ref": source_ref,
+        "created_at": created_at,
+    }
+    validate_event(row, {application_id})
+    return row
 
 
 def _event(
@@ -323,7 +399,15 @@ def merge_events(
 
     by_id = {row["event_id"]: row for row in existing_rows}
     for row in incoming_rows:
-        by_id.setdefault(row["event_id"], row)
+        match = by_id.get(row["event_id"])
+        if match is not None and any(
+            match[column] != row[column]
+            for column in EVENT_COLUMNS
+            if column != "created_at"
+        ):
+            raise ValueError(f"conflicting duplicate event_id: {row['event_id']!r}")
+        if match is None:
+            by_id[row["event_id"]] = row
     merged = sorted(
         by_id.values(),
         key=lambda event: (

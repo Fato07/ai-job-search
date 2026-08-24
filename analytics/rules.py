@@ -31,6 +31,23 @@ GEOGRAPHIES = ("EEA", "US", "Helsinki/Tallinn", "country-of-residence", "office-
 EMPLOYMENT_MODELS = ("employee", "b2b", "contractor", "unknown")
 _DIRECT_EVIDENCE = frozenset(("explicit", "observed"))
 
+RULE_COLUMNS = frozenset(
+    {
+        "rule_id",
+        "category",
+        "scope",
+        "trigger",
+        "required_action",
+        "evidence_count",
+        "evidence_tiers",
+        "confidence",
+        "source_feedback_ids",
+        "last_updated",
+        "status",
+    }
+)
+RULE_STATUSES = frozenset({"active", "monitor", "resolved"})
+
 
 @dataclass(frozen=True)
 class RuleContext:
@@ -219,6 +236,43 @@ def build_rules(feedback: Iterable[Mapping[str, str]]) -> list[dict[str, object]
         rules,
         key=lambda rule: (rule["status"], rule["category"], rule["rule_id"]),
     )
+
+
+def validate_rules(rules: Iterable[Mapping[str, object]]) -> None:
+    seen: set[str] = set()
+    for rule in rules:
+        if set(rule) != RULE_COLUMNS:
+            raise ValueError("rule columns differ from schema")
+        rule_id = rule["rule_id"]
+        if not isinstance(rule_id, str) or not rule_id.startswith("rule-") or len(rule_id) != 69:
+            raise ValueError("rule_id must be a stable SHA-256 identifier")
+        if rule_id in seen:
+            raise ValueError(f"duplicate rule_id: {rule_id!r}")
+        seen.add(rule_id)
+        if rule["status"] not in RULE_STATUSES:
+            raise ValueError(f"invalid rule status: {rule['status']!r}")
+        if not isinstance(rule["scope"], dict) or any(
+            not isinstance(key, str) or not isinstance(value, str)
+            for key, value in rule["scope"].items()
+        ):
+            raise ValueError("rule scope must contain string keys and values")
+        if (
+            not isinstance(rule["source_feedback_ids"], list)
+            or any(
+                not isinstance(value, str)
+                or not value.startswith("fb-")
+                or len(value) != 67
+                for value in rule["source_feedback_ids"]
+            )
+        ):
+            raise ValueError("rule source_feedback_ids are invalid")
+        if not isinstance(rule["evidence_tiers"], list) or any(
+            value not in {"explicit", "observed", "inferred", "boilerplate"}
+            for value in rule["evidence_tiers"]
+        ):
+            raise ValueError("rule evidence_tiers are invalid")
+        if not isinstance(rule["evidence_count"], int) or rule["evidence_count"] < 1:
+            raise ValueError("rule evidence_count must be positive")
 
 
 def select_rules(

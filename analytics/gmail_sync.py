@@ -1,17 +1,23 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import math
 import re
 import subprocess
 from collections.abc import Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+from analytics.events import mail_event
+from analytics.feedback import CATEGORIES, mail_feedback
 from analytics.model import hash_source_ref
 
 
@@ -19,6 +25,9 @@ EXPECTED_ACCOUNT_ALIAS = "job-search"
 EXPECTED_MAILBOX = "fathindos.fd@gmail.com"
 MAX_EXCERPT_LENGTH = 280
 MAX_SPILLED_OUTPUT_BYTES = 20 * 1024 * 1024
+_FALLBACK_WORKERS = 4
+_MAX_FALLBACK_MESSAGES = 8
+_COMPOSIO_TIMEOUT_SECONDS = 120
 
 
 class ComposioError(RuntimeError):
@@ -91,6 +100,13 @@ class SyncProposal:
             rows = getattr(self, field_name)
             object.__setattr__(self, field_name, tuple(_freeze(row) for row in rows))
         object.__setattr__(self, "checkpoint", _freeze(self.checkpoint))
+
+
+@dataclass(frozen=True)
+class MailboxDiscovery:
+    proposal: SyncProposal
+    scanned: int
+    matched: int
 
 
 class _TextExtractor(HTMLParser):
@@ -202,6 +218,10 @@ _ROLE_MARKERS = frozenset(
         "engineering", "lead", "manager", "scientist", "security", "specialist",
     }
 )
+_JOB_METADATA = re.compile(
+    r"\b(?:application|candidate|interview|recruit(?:er|ing)?|talent|hiring|position|role|careers?)\b",
+    re.I,
+)
 
 
 def _diagnostic(value: object, fallback: str) -> str:
@@ -280,12 +300,14 @@ class ComposioClient:
                 check=True,
                 capture_output=True,
                 text=True,
+                timeout=_COMPOSIO_TIMEOUT_SECONDS,
             )
-        except subprocess.CalledProcessError as exc:
-            diagnostic = _diagnostic(exc.stderr, "Composio command failed")
-            raise ComposioError(diagnostic) from None
-        except OSError as exc:
-            raise ComposioError(_diagnostic(str(exc), "Composio CLI is unavailable")) from None
+        except subprocess.TimeoutExpired:
+            raise ComposioError("Composio command timed out") from None
+        except subprocess.CalledProcessError:
+            raise ComposioError("Composio command failed") from None
+        except OSError:
+            raise ComposioError("Composio CLI is unavailable") from None
 
         try:
             parsed = json.loads(completed.stdout)
@@ -296,12 +318,26 @@ class ComposioClient:
         return unwrap_composio_result(parsed)
 
 
+def _execute_with_retry(
+    client: ComposioClient,
+    slug: str,
+    data: Mapping[str, object],
+) -> dict:
+    for attempt in range(2):
+        try:
+            return client.execute(slug, data)
+        except ComposioError:
+            if attempt:
+                raise
+    raise AssertionError("unreachable")
+
+
 def verify_mailbox(client: ComposioClient, expected_address: str) -> None:
     if expected_address.strip().casefold() != EXPECTED_MAILBOX:
         raise ComposioError("Gmail reads require the configured expected mailbox")
     if getattr(client, "account", None) != EXPECTED_ACCOUNT_ALIAS:
         raise ComposioError("Composio account alias must be 'job-search'")
-    profile = client.execute("GMAIL_GET_PROFILE", {"user_id": "me"})
+    profile = _execute_with_retry(client, "GMAIL_GET_PROFILE", {"user_id": "me"})
     data = profile.get("data")
     address = data.get("emailAddress") if isinstance(data, Mapping) else None
     if not isinstance(address, str) or address.strip().casefold() != expected_address.strip().casefold():
@@ -565,3 +601,389 @@ def match_application(
     if round(best_score - second_score, 2) < 0.20:
         return MatchResult(None, candidates, best_score, "ambiguous: score margin below 0.20")
     return MatchResult(best_id, candidates, best_score, "unique high-confidence match")
+
+
+def _result_data(result: Mapping[str, object]) -> Mapping[str, object]:
+    data = result.get("data")
+    if isinstance(data, Mapping):
+        message = data.get("message")
+        return message if isinstance(message, Mapping) else data
+    return result
+
+
+def _message_identity(message: Mapping[str, object]) -> str:
+    value = message.get("messageId") or message.get("id")
+    if not isinstance(value, str) or not value.strip():
+        raise ComposioError("Gmail metadata is missing a message identity")
+    return value.strip()
+
+
+def _metadata_messages(result: Mapping[str, object]) -> tuple[list[Mapping[str, object]], str]:
+    data = _result_data(result)
+    messages = data.get("messages")
+    if messages is None:
+        messages = result.get("messages")
+    if not isinstance(messages, list) or any(not isinstance(item, Mapping) for item in messages):
+        raise ComposioError("Gmail metadata response has an invalid messages list")
+    token = data.get("nextPageToken") or result.get("nextPageToken") or ""
+    if not isinstance(token, str):
+        raise ComposioError("Gmail metadata response has an invalid page token")
+    return list(messages), token
+
+
+def _decode_body_data(value: object) -> str:
+    if not isinstance(value, str) or not value:
+        return ""
+    try:
+        raw = value.encode("ascii")
+        raw += b"=" * (-len(raw) % 4)
+        return base64.urlsafe_b64decode(raw).decode("utf-8", errors="replace")
+    except (UnicodeEncodeError, ValueError):
+        return ""
+
+
+def _mime_text(part: Mapping[str, object]) -> str:
+    mime_type = part.get("mimeType")
+    body = part.get("body")
+    if isinstance(mime_type, str) and mime_type.casefold() in {"text/plain", "text/html"}:
+        if isinstance(body, Mapping):
+            text = _decode_body_data(body.get("data"))
+            if text:
+                return text
+    parts = part.get("parts")
+    if not isinstance(parts, list):
+        return ""
+    plain: list[str] = []
+    html: list[str] = []
+    for child in parts:
+        if not isinstance(child, Mapping):
+            continue
+        text = _mime_text(child)
+        if not text:
+            continue
+        if str(child.get("mimeType", "")).casefold() == "text/html":
+            html.append(text)
+        else:
+            plain.append(text)
+    return "\n".join(plain or html)
+
+
+def _headers(payload: Mapping[str, object]) -> dict[str, str]:
+    values: dict[str, str] = {}
+    headers = payload.get("headers")
+    if not isinstance(headers, list):
+        return values
+    for header in headers:
+        if not isinstance(header, Mapping):
+            continue
+        name = header.get("name")
+        value = header.get("value")
+        if isinstance(name, str) and isinstance(value, str):
+            values[name.casefold()] = value
+    return values
+
+
+def _message_timestamp(message: Mapping[str, object], headers: Mapping[str, str]) -> str:
+    value = message.get("messageTimestamp") or message.get("occurred_at")
+    if isinstance(value, str) and value:
+        return value
+    internal = message.get("internalDate")
+    if isinstance(internal, (str, int)):
+        try:
+            return (
+                datetime.fromtimestamp(int(internal) / 1000, tz=timezone.utc)
+                .isoformat(timespec="seconds")
+                .replace("+00:00", "Z")
+            )
+        except (ValueError, OverflowError):
+            pass
+    date_header = headers.get("date")
+    if date_header:
+        try:
+            parsed = parsedate_to_datetime(date_header)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc).isoformat(timespec="seconds").replace(
+                "+00:00", "Z"
+            )
+        except (TypeError, ValueError, OverflowError):
+            pass
+    return ""
+
+
+def _normalize_full_message(
+    result: Mapping[str, object],
+    metadata: Mapping[str, object],
+    message_id: str,
+) -> dict[str, object]:
+    data = dict(_result_data(result))
+    payload = data.get("payload")
+    headers = _headers(payload) if isinstance(payload, Mapping) else {}
+    normalized = dict(metadata)
+    normalized.update(data)
+    normalized["messageId"] = message_id
+    normalized["subject"] = data.get("subject") or headers.get("subject") or metadata.get("subject", "")
+    normalized["sender"] = data.get("sender") or headers.get("from") or metadata.get("sender", "")
+    normalized["messageTimestamp"] = _message_timestamp(normalized, headers)
+    if not _message_body(normalized) and isinstance(payload, Mapping):
+        normalized["messageText"] = _mime_text(payload)
+    return normalized
+
+
+def _normalize_bulk_message(message: Mapping[str, object]) -> dict[str, object]:
+    message_id = _message_identity(message)
+    return _normalize_full_message(message, message, message_id)
+
+
+def _needs_feedback_body(message: Mapping[str, object]) -> bool:
+    if _message_body(message):
+        return False
+    subject = _sanitize_text(message.get("subject"), 200)
+    return any(pattern.search(subject) for pattern in _REJECTION_PATTERNS)
+
+
+def _hydrate_message(
+    client: ComposioClient,
+    metadata: Mapping[str, object],
+) -> dict[str, object]:
+    message_id = _message_identity(metadata)
+    result = _execute_with_retry(
+        client,
+        "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID",
+        {"message_id": message_id, "user_id": "me", "format": "full"},
+    )
+    return _normalize_full_message(result, metadata, message_id)
+
+
+def _candidate_metadata(message: Mapping[str, object]) -> bool:
+    try:
+        if classify_message(message) is not None:
+            return True
+    except ValueError:
+        pass
+    metadata_text = " ".join(
+        _sanitize_text(message.get(field), 240)
+        for field in ("subject", "sender", "snippet")
+    )
+    return _JOB_METADATA.search(metadata_text) is not None
+
+
+def _scan_query(
+    applications: Sequence[Mapping[str, object]],
+    checkpoint: Mapping[str, object],
+) -> str:
+    last_successful = checkpoint.get("last_successful_at")
+    if last_successful is None:
+        discovered = sorted(
+            str(item.get("discovered_at"))
+            for item in applications
+            if isinstance(item.get("discovered_at"), str) and item.get("discovered_at")
+        )
+        if not discovered:
+            raise ValueError("first Gmail scan requires a tracker discovered_at")
+        try:
+            start = date.fromisoformat(discovered[0]) - timedelta(days=1)
+        except ValueError as exc:
+            raise ValueError("tracker discovered_at must be an ISO date") from exc
+    elif isinstance(last_successful, str):
+        try:
+            parsed = datetime.fromisoformat(last_successful.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("checkpoint last_successful_at must be an ISO timestamp") from exc
+        if parsed.tzinfo is None:
+            raise ValueError("checkpoint last_successful_at must be timezone-aware")
+        start = parsed.astimezone(timezone.utc).date() - timedelta(days=8)
+    else:
+        raise ValueError("checkpoint last_successful_at must be a string or null")
+    return (
+        f"after:{start:%Y/%m/%d} "
+        '{"application received" "received your application" "thank you for applying" '
+        '"your application" "application update" "application status" "move forward" '
+        '"other candidates" "interview invitation" "schedule your interview" '
+        '"schedule an interview" "would like to speak with you"}'
+    )
+
+
+def _utc_timestamp(value: datetime) -> str:
+    if value.tzinfo is None:
+        raise ValueError("datetime must be timezone-aware")
+    return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _signal_date(signal: MailSignal) -> str:
+    try:
+        parsed = datetime.fromisoformat(signal.occurred_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("mail signal occurred_at must be an ISO timestamp") from exc
+    if parsed.tzinfo is None:
+        raise ValueError("mail signal occurred_at must be timezone-aware")
+    return parsed.astimezone(timezone.utc).date().isoformat()
+
+
+def _tracker_update(signal: MailSignal, application_id: str) -> dict[str, object]:
+    occurred_date = _signal_date(signal)
+    if signal.event_type == "received":
+        return {
+            "application_id": application_id,
+            "stage": "submitted",
+            "status": f"APPLICATION RECEIVED {occurred_date}",
+            "status_updated_at": occurred_date,
+            "submitted_at": occurred_date,
+        }
+    if signal.event_type == "interview":
+        return {
+            "application_id": application_id,
+            "stage": "interview",
+            "status": f"INTERVIEW {occurred_date}",
+            "status_updated_at": occurred_date,
+        }
+    if signal.event_type == "rejected":
+        return {
+            "application_id": application_id,
+            "stage": "closed",
+            "status": f"REJECTED {occurred_date}",
+            "status_updated_at": occurred_date,
+        }
+    raise ValueError(f"unsupported mail event type: {signal.event_type!r}")
+
+
+def _review_item(signal: MailSignal, match: MatchResult) -> dict[str, object]:
+    material = "\x1f".join((signal.source_ref, match.reason))
+    return {
+        "review_id": f"review-{hashlib.sha256(material.encode('utf-8')).hexdigest()}",
+        "occurred_at": signal.occurred_at,
+        "sender": signal.sender,
+        "subject": signal.subject,
+        "company": signal.company,
+        "role": signal.role,
+        "candidate_application_ids": json.dumps(
+            list(match.candidates), separators=(",", ":")
+        ),
+        "reason": match.reason,
+        "source_ref": signal.source_ref,
+        "status": "pending",
+    }
+
+
+def discover_mailbox(
+    client: ComposioClient,
+    applications: Sequence[Mapping[str, object]],
+    checkpoint: Mapping[str, object],
+    now: datetime,
+) -> MailboxDiscovery:
+    verify_mailbox(client, EXPECTED_MAILBOX)
+    query = _scan_query(applications, checkpoint)
+    messages_for_classification: list[dict[str, object]] = []
+    seen_source_identities: set[str] = set()
+    seen_page_tokens: set[str] = set()
+    page_token = ""
+    while True:
+        request: dict[str, object] = {
+            "query": query,
+            "user_id": "me",
+            "verbose": True,
+            "ids_only": False,
+            "label_ids": [],
+            "max_results": 500,
+            "include_payload": False,
+            "include_spam_trash": False,
+        }
+        if page_token:
+            request["page_token"] = page_token
+        page = _execute_with_retry(client, "GMAIL_FETCH_EMAILS", request)
+        messages, next_page_token = _metadata_messages(page)
+        for message in messages:
+            source_identity = hash_source_ref(_message_identity(message))
+            if source_identity not in seen_source_identities:
+                seen_source_identities.add(source_identity)
+                messages_for_classification.append(_normalize_bulk_message(message))
+        if not next_page_token:
+            break
+        if next_page_token in seen_page_tokens:
+            raise ComposioError("Gmail pagination repeated a page token")
+        seen_page_tokens.add(next_page_token)
+        page_token = next_page_token
+
+    created_at = _utc_timestamp(now)
+    applications_by_id = {
+        str(application.get("application_id")): application
+        for application in applications
+        if application.get("application_id")
+    }
+    events: list[Mapping[str, object]] = []
+    feedback: list[Mapping[str, object]] = []
+    tracker_updates: list[Mapping[str, object]] = []
+    review_items: list[Mapping[str, object]] = []
+    matched = 0
+    seen_source_refs: set[str] = set()
+
+    fallback = [
+        (index, message)
+        for index, message in enumerate(messages_for_classification)
+        if _needs_feedback_body(message)
+    ]
+    if len(fallback) > _MAX_FALLBACK_MESSAGES:
+        raise ComposioError("Gmail missing-body fallback limit exceeded")
+    if fallback:
+        with ThreadPoolExecutor(
+            max_workers=min(_FALLBACK_WORKERS, len(fallback))
+        ) as executor:
+            futures = [
+                executor.submit(_hydrate_message, client, metadata)
+                for _, metadata in fallback
+            ]
+            hydrated = [future.result() for future in futures]
+        for (index, _), message in zip(fallback, hydrated, strict=True):
+            messages_for_classification[index] = message
+    for message in messages_for_classification:
+        signal = classify_message(message)
+        if signal is None or signal.source_ref in seen_source_refs:
+            continue
+        seen_source_refs.add(signal.source_ref)
+        match = match_application(signal, applications)
+        if match.application_id is None:
+            review_items.append(_review_item(signal, match))
+            continue
+        application = applications_by_id.get(match.application_id)
+        if application is None:
+            raise ValueError("mail match references an unknown application")
+        matched += 1
+        tracker_updates.append(_tracker_update(signal, match.application_id))
+        events.append(
+            mail_event(
+                application_id=match.application_id,
+                occurred_at=signal.occurred_at,
+                event_type=signal.event_type,
+                detail=signal.signal,
+                source_ref=signal.source_ref,
+                created_at=created_at,
+            )
+        )
+        if signal.category in CATEGORIES:
+            feedback.append(
+                mail_feedback(
+                    application=application,
+                    occurred_at=signal.occurred_at,
+                    evidence_tier=signal.evidence_tier,
+                    category=signal.category,
+                    signal=signal.signal,
+                    evidence_excerpt=signal.excerpt,
+                    required_action=signal.required_action,
+                    confidence=match.score,
+                    source_ref=signal.source_ref,
+                    created_at=created_at,
+                )
+            )
+
+    proposal = SyncProposal(
+        tuple(events),
+        tuple(feedback),
+        tuple(tracker_updates),
+        tuple(review_items),
+        {"last_successful_at": created_at},
+    )
+    return MailboxDiscovery(
+        proposal=proposal,
+        scanned=len(messages_for_classification),
+        matched=matched,
+    )

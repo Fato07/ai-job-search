@@ -140,16 +140,29 @@ class GmailReconciliationTests(unittest.TestCase):
         self.assertTrue(kwargs["text"])
 
     @patch("analytics.gmail_sync.subprocess.run")
-    def test_client_command_failure_uses_stderr_not_stdout_payload(self, run):
+    def test_client_command_failure_uses_payload_free_diagnostic(self, run):
         run.side_effect = subprocess.CalledProcessError(
             2,
             ["composio"],
             output='{"messageText":"do-not-leak"}',
-            stderr="connection failed",
+            stderr="mailbox content must not be surfaced",
         )
-        with self.assertRaises(ComposioError) as raised:
+        with self.assertRaisesRegex(ComposioError, "Composio command failed") as raised:
             ComposioClient().execute("GMAIL_GET_PROFILE", {"user_id": "me"})
-        self.assertIn("connection failed", str(raised.exception))
+        self.assertNotIn("do-not-leak", str(raised.exception))
+        self.assertNotIn("mailbox content", str(raised.exception))
+
+    @patch("analytics.gmail_sync.subprocess.run")
+    def test_client_timeout_raises_payload_free_composio_error(self, run):
+        run.side_effect = subprocess.TimeoutExpired(
+            ["composio"],
+            120,
+            output='{"messageText":"do-not-leak"}',
+        )
+
+        with self.assertRaisesRegex(ComposioError, "timed out") as raised:
+            ComposioClient().execute("GMAIL_GET_PROFILE", {"user_id": "me"})
+
         self.assertNotIn("do-not-leak", str(raised.exception))
 
     def test_client_rejects_any_account_other_than_job_search(self):

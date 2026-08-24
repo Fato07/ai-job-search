@@ -90,6 +90,81 @@ def feedback_id(application_id: str, occurred_at: str, category: str, source_ref
     return f"fb-{hashlib.sha256(material.encode('utf-8')).hexdigest()}"
 
 
+def _employment_model(application: Mapping[str, str]) -> str:
+    role_type = application.get("role_type", "").casefold()
+    if "b2b" in role_type:
+        return "b2b"
+    if any(marker in role_type for marker in ("contract", "freelance")):
+        return "contractor"
+    if any(
+        marker in role_type
+        for marker in ("full-time", "part-time", "employee", "employment", "permanent")
+    ):
+        return "employee"
+    return "unknown"
+
+
+def mail_feedback(
+    *,
+    application: Mapping[str, str],
+    occurred_at: str,
+    evidence_tier: str,
+    category: str,
+    signal: str,
+    evidence_excerpt: str,
+    required_action: str,
+    confidence: float,
+    source_ref: str,
+    created_at: str,
+) -> dict[str, str]:
+    stage_by_category = {
+        "technical_depth": "technical",
+        "ml_genai_evaluation": "technical",
+        "leadership_people_evidence": "onsite",
+        "communication_decision_clarity": "onsite",
+    }
+    stage = stage_by_category.get(category, "application")
+    scope_values = {
+        key: application.get(key, "")
+        for key in ("role_family", "geography")
+        if application.get(key, "")
+    }
+    if category == "logistics_work_authorization":
+        scope_values["employment_model"] = _employment_model(application)
+    scope_values["stage"] = stage
+    rule_effect = (
+        "monitor"
+        if evidence_tier == "boilerplate" or not required_action.strip()
+        else "activate"
+    )
+    application_id = application.get("application_id", "")
+    row = {
+        "feedback_id": feedback_id(
+            application_id,
+            occurred_at,
+            category,
+            source_ref,
+        ),
+        "application_id": application_id,
+        "occurred_at": occurred_at,
+        "stage": stage,
+        "source": "employer_email",
+        "evidence_tier": evidence_tier,
+        "category": category,
+        "signal": signal,
+        "evidence_excerpt": evidence_excerpt,
+        "required_action": required_action,
+        "rule_effect": rule_effect,
+        "resolves_feedback_id": "",
+        "scope": json.dumps(scope_values, sort_keys=True, separators=(",", ":")),
+        "confidence": f"{confidence:.2f}",
+        "source_ref": source_ref,
+        "created_at": created_at,
+    }
+    validate_feedback(row, {application_id})
+    return row
+
+
 def validate_feedback(event: Mapping[str, str], application_ids: Collection[str]) -> None:
     if set(event) != set(FEEDBACK_COLUMNS):
         raise ValueError("feedback columns differ from schema")
@@ -166,7 +241,11 @@ def merge_feedback(
         id_match = by_id.get(row["feedback_id"])
         source_match = by_source_ref.get(row["source_ref"])
         for match in (id_match, source_match):
-            if match is not None and match != row:
+            if match is not None and any(
+                match[column] != row[column]
+                for column in FEEDBACK_COLUMNS
+                if column != "created_at"
+            ):
                 raise ValueError(
                     "conflicting duplicate feedback_id or source_ref: "
                     f"{row['feedback_id']!r} / {row['source_ref']!r}"
