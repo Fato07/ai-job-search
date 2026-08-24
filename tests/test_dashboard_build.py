@@ -1,0 +1,320 @@
+import unittest
+from datetime import date
+
+from dashboard.build import build_snapshot, render_dashboard
+
+
+APPLICATIONS = [
+    {
+        "application_id": "app-1",
+        "company": "Alpha",
+        "role": "Applied AI Engineer",
+        "role_family": "applied_ai",
+        "geography": "EEA Remote",
+        "channel": "Ashby",
+        "logistics_status": "pass",
+        "seniority": "senior",
+        "screening_decision": "qualified",
+        "stage": "submitted",
+        "fit_score": "90",
+        "status": "SUBMITTED 2026-08-24",
+        "status_updated_at": "2026-08-24",
+        "source": "https://jobs.example/alpha",
+    },
+    {
+        "application_id": "app-2",
+        "company": "Beta",
+        "role": "AI Platform Engineer",
+        "role_family": "ai_platform",
+        "geography": "Tallinn",
+        "channel": "Teamtailor",
+        "logistics_status": "pass",
+        "seniority": "mid",
+        "screening_decision": "qualified",
+        "stage": "qualified",
+        "fit_score": "85",
+        "status": "QUALIFIED",
+        "status_updated_at": "2026-08-24",
+        "source": "https://jobs.example/beta",
+    },
+]
+EVENTS = [
+    {"event_id": "evt-1", "application_id": "app-1", "event_type": "discovered", "occurred_at": "2026-08-23T08:00:00Z"},
+    {"event_id": "evt-2", "application_id": "app-1", "event_type": "screened", "occurred_at": "2026-08-24T08:00:00Z"},
+    {"event_id": "evt-3", "application_id": "app-1", "event_type": "submitted", "occurred_at": "2026-08-24T09:00:00Z"},
+    {"event_id": "evt-4", "application_id": "app-2", "event_type": "discovered", "occurred_at": "2026-08-24T09:30:00Z"},
+    {"event_id": "evt-5", "application_id": "app-2", "event_type": "screened", "occurred_at": "2026-08-24T10:00:00Z"},
+    {"event_id": "evt-6", "application_id": "app-2", "event_type": "qualified", "occurred_at": "2026-08-23T10:05:00Z"},
+]
+FEEDBACK = [{
+    "feedback_id": "fb-1",
+    "application_id": "app-1",
+    "category": "metric_rigor_provenance",
+    "evidence_tier": "observed",
+}]
+RULES = [{
+    "rule_id": "rule-1",
+    "category": "metric_rigor_provenance",
+    "status": "active",
+    "source_feedback_ids": ["fb-1"],
+}]
+CONFIG = {
+    "daily_screening_target": 100,
+    "daily_submission_soft_capacity": 20,
+    "stale_after_days": 14,
+}
+TODAY = date(2026, 8, 24)
+
+
+def application(application_id, score, stage="submitted"):
+    return {
+        "application_id": application_id,
+        "company": f"Company {application_id}",
+        "role": "Applied AI Engineer",
+        "role_family": "applied_ai",
+        "geography": "EEA Remote",
+        "channel": "Ashby",
+        "logistics_status": "pass",
+        "seniority": "senior",
+        "screening_decision": "qualified",
+        "stage": stage,
+        "fit_score": str(score),
+        "status": stage.upper(),
+        "source": f"https://jobs.example/{application_id}",
+    }
+
+
+def event(event_id, application_id, event_type, occurred_at):
+    return {
+        "event_id": event_id,
+        "application_id": application_id,
+        "event_type": event_type,
+        "occurred_at": occurred_at,
+    }
+
+
+class DashboardBuildTests(unittest.TestCase):
+    def build(self, **overrides):
+        arguments = {
+            "applications": APPLICATIONS,
+            "events": EVENTS,
+            "feedback": FEEDBACK,
+            "rules": RULES,
+            "review_items": [],
+            "config": CONFIG,
+            "today": TODAY,
+        }
+        arguments.update(overrides)
+        return build_snapshot(**arguments)
+
+    def test_snapshot_has_complete_contract_and_separates_screened_from_submitted(self):
+        snapshot = self.build()
+
+        self.assertEqual(
+            set(snapshot),
+            {
+                "meta", "today", "funnel", "daily_series", "weekly_cohorts",
+                "response_metrics", "calibration", "feedback", "pipeline",
+                "data_quality", "filters",
+            },
+        )
+        self.assertEqual(snapshot["meta"]["generated_at"], "2026-08-24T00:00:00Z")
+        self.assertEqual(snapshot["today"]["screening_target"], 100)
+        self.assertEqual(snapshot["today"]["submission_soft_capacity"], 20)
+        self.assertEqual(snapshot["today"]["screened"], 2)
+        self.assertEqual(snapshot["today"]["submitted"], 1)
+        self.assertEqual(snapshot["today"]["qualified"], 1)
+        self.assertEqual(snapshot["funnel"]["screened"], 2)
+        self.assertEqual(snapshot["funnel"]["submitted"], 1)
+
+    def test_funnel_timing_and_medians_use_deduplicated_lifecycle_events(self):
+        applications = [application(f"app-{number}", 95 - number) for number in range(1, 8)]
+        events = []
+        for number in range(1, 8):
+            events.append(event(f"d-{number}", f"app-{number}", "discovered", "2026-08-01T08:00:00Z"))
+        transitions = [
+            ("s-1", "app-1", "submitted", "2026-08-24T09:00:00Z"),
+            ("r-1", "app-1", "rejected", "2026-08-24T12:00:00Z"),
+            ("s-3", "app-3", "submitted", "2026-08-18T09:00:00Z"),
+            ("i-3", "app-3", "interview", "2026-08-20T09:00:00Z"),
+            ("s-4", "app-4", "submitted", "2026-08-18T10:00:00Z"),
+            ("o-4", "app-4", "offer", "2026-08-22T10:00:00Z"),
+            ("s-5", "app-5", "submitted", "2026-08-19T08:00:00Z"),
+            ("s-6", "app-6", "submitted", "2026-08-19T11:00:00Z"),
+            ("r-6", "app-6", "rejected", "2026-08-24T11:00:00Z"),
+            ("s-7", "app-7", "submitted", "2026-08-20T12:00:00Z"),
+            ("p-7", "app-7", "responded", "2026-08-21T12:00:00Z"),
+            ("i-7", "app-7", "interview", "2026-08-23T12:00:00Z"),
+        ]
+        events.extend(event(*transition) for transition in transitions)
+        events.append(dict(events[-1]))
+
+        snapshot = self.build(applications=applications, events=events, feedback=[], rules=[])
+
+        self.assertEqual(snapshot["funnel"], {
+            "discovered": 7,
+            "screened": 0,
+            "qualified": 0,
+            "submitted": 6,
+            "responded": 5,
+            "interviewed": 2,
+            "offered": 1,
+        })
+        metrics = snapshot["response_metrics"]
+        self.assertEqual(metrics["submitted"], 6)
+        self.assertEqual(metrics["responded"], 5)
+        self.assertAlmostEqual(metrics["response_rate"], 5 / 6)
+        self.assertAlmostEqual(metrics["interview_rate"], 2 / 6)
+        self.assertAlmostEqual(metrics["offer_rate"], 1 / 6)
+        self.assertEqual(metrics["median_time_to_response_hours"], 48.0)
+        self.assertEqual(metrics["median_time_to_decision_hours"], 96.0)
+        self.assertEqual(metrics["open_applications"], 3)
+        self.assertEqual(snapshot["data_quality"]["duplicates"]["events"], ["i-7"])
+
+    def test_zero_denominators_and_missing_timing_emit_defined_values(self):
+        snapshot = self.build(events=[], feedback=[], rules=[])
+
+        self.assertEqual(snapshot["response_metrics"]["response_rate"], 0.0)
+        self.assertEqual(snapshot["response_metrics"]["interview_rate"], 0.0)
+        self.assertEqual(snapshot["response_metrics"]["offer_rate"], 0.0)
+        self.assertIsNone(snapshot["response_metrics"]["median_time_to_response_hours"])
+        self.assertIsNone(snapshot["response_metrics"]["median_time_to_decision_hours"])
+        self.assertEqual(snapshot["daily_series"], [{
+            "date": "2026-08-24", "discovered": 0, "screened": 0,
+            "qualified": 0, "submitted": 0, "responded": 0,
+            "interviewed": 0, "offered": 0,
+        }])
+
+    def test_outcomes_before_submission_do_not_count_as_conversion(self):
+        events = [
+            event("d-1", "app-1", "discovered", "2026-08-20T08:00:00Z"),
+            event("r-1", "app-1", "rejected", "2026-08-20T09:00:00Z"),
+            event("s-1", "app-1", "submitted", "2026-08-21T09:00:00Z"),
+        ]
+
+        snapshot = self.build(applications=[APPLICATIONS[0]], events=events, feedback=[], rules=[])
+
+        self.assertEqual(snapshot["funnel"]["responded"], 0)
+        self.assertEqual(snapshot["response_metrics"]["responded"], 0)
+        self.assertEqual(snapshot["response_metrics"]["open_applications"], 1)
+        self.assertIsNone(snapshot["response_metrics"]["median_time_to_response_hours"])
+
+    def test_calibration_and_weekly_cohorts_gate_conversion_below_five_submissions(self):
+        applications = [application(f"app-{number}", 96 - number) for number in range(1, 7)]
+        applications.append({**application("app-small", 80), "role_family": "ai_platform"})
+        events = []
+        for number in range(1, 7):
+            app_id = f"app-{number}"
+            events.extend([
+                event(f"d-{number}", app_id, "discovered", "2026-08-17T08:00:00Z"),
+                event(f"s-{number}", app_id, "submitted", f"2026-08-{17 + number:02d}T09:00:00Z"),
+            ])
+        events.extend([
+            event("d-small", "app-small", "discovered", "2026-08-24T08:00:00Z"),
+            event("s-small", "app-small", "submitted", "2026-08-24T09:00:00Z"),
+            event("r-1", "app-1", "rejected", "2026-08-23T09:00:00Z"),
+        ])
+
+        snapshot = self.build(applications=applications, events=events, feedback=[], rules=[])
+        role_segments = {row["value"]: row for row in snapshot["calibration"]["role_family"]}
+
+        self.assertFalse(role_segments["applied_ai"]["insufficient_sample"])
+        self.assertEqual(role_segments["applied_ai"]["conversion_rates"]["response"], 1 / 6)
+        self.assertTrue(role_segments["ai_platform"]["insufficient_sample"])
+        self.assertNotIn("conversion_rates", role_segments["ai_platform"])
+        self.assertTrue(all(0.0 <= value <= 1.0 for value in role_segments["applied_ai"]["conversion_rates"].values()))
+        cohorts = {row["week_start"]: row for row in snapshot["weekly_cohorts"]}
+        self.assertFalse(cohorts["2026-08-17"]["insufficient_sample"])
+        self.assertTrue(cohorts["2026-08-24"]["insufficient_sample"])
+        self.assertNotIn("conversion_rates", cohorts["2026-08-24"])
+
+    def test_feedback_pipeline_and_filters_are_normalized_and_sorted(self):
+        feedback = FEEDBACK + [{
+            "feedback_id": "fb-2",
+            "application_id": "app-2",
+            "category": "technical_depth",
+            "evidence_tier": "explicit",
+        }]
+        rules = RULES + [{
+            "rule_id": "rule-2",
+            "category": "technical_depth",
+            "status": "monitor",
+            "source_feedback_ids": ["fb-2"],
+        }]
+
+        snapshot = self.build(feedback=feedback, rules=rules)
+
+        self.assertEqual(snapshot["feedback"]["category_counts"], {
+            "metric_rigor_provenance": 1,
+            "technical_depth": 1,
+        })
+        self.assertEqual(snapshot["feedback"]["rule_status_counts"], {
+            "active": 1, "monitor": 1, "resolved": 0,
+        })
+        self.assertEqual(snapshot["feedback"]["lineage"][0]["application_ids"], ["app-1"])
+        self.assertEqual([row["application_id"] for row in snapshot["pipeline"]], ["app-1", "app-2"])
+        self.assertEqual(snapshot["pipeline"][0]["application_date"], "2026-08-24")
+        self.assertEqual(snapshot["pipeline"][0]["next_action"], "Follow up")
+        self.assertEqual(snapshot["filters"]["role_family"], ["ai_platform", "applied_ai"])
+        self.assertEqual(snapshot["filters"]["evidence_tier"], ["explicit", "observed"])
+        self.assertEqual(snapshot["filters"]["feedback_category"], ["metric_rigor_provenance", "technical_depth"])
+        self.assertEqual(snapshot["filters"]["date_range"], {"start": "2026-08-23", "end": "2026-08-24"})
+
+    def test_data_quality_reports_missing_ambiguous_duplicate_stale_and_orphan_rows(self):
+        applications = [
+            application("app-1", 91),
+            {**application("app-old", ""), "stage": "mystery"},
+            dict(application("app-1", 91)),
+            {**application("", 80), "company": "No ID"},
+        ]
+        events = [
+            event("old", "app-old", "discovered", "2026-08-01T08:00:00Z"),
+            event("dup", "app-1", "submitted", "2026-08-20T08:00:00Z"),
+            event("dup", "app-1", "submitted", "2026-08-20T08:00:00Z"),
+            event("orphan", "app-404", "rejected", "2026-08-21T08:00:00Z"),
+            event("bad-time", "app-1", "interview", "not-a-date"),
+        ]
+        feedback = [{"feedback_id": "fb-orphan", "application_id": "app-404", "category": "technical_depth", "evidence_tier": "observed"}]
+        review_items = [{"review_id": "review-1", "status": "pending"}]
+
+        quality = self.build(
+            applications=applications,
+            events=events,
+            feedback=feedback,
+            rules=[],
+            review_items=review_items,
+        )["data_quality"]
+
+        self.assertEqual(quality["missing_scores"], ["app-old"])
+        self.assertEqual(quality["missing_dates"], ["app-1"])
+        self.assertEqual(quality["ambiguous_statuses"], ["app-old"])
+        self.assertEqual(quality["duplicates"]["application_ids"], ["app-1"])
+        self.assertEqual(quality["duplicates"]["events"], ["dup"])
+        self.assertEqual(quality["orphaned_application_rows"], [4])
+        self.assertEqual(quality["orphaned_events"], ["orphan"])
+        self.assertEqual(quality["orphaned_feedback"], ["fb-orphan"])
+        self.assertEqual(quality["invalid_event_timestamps"], ["bad-time"])
+        self.assertEqual(quality["stale_rows"], ["app-old"])
+        self.assertEqual(quality["review_queue"]["count"], 1)
+
+    def test_render_is_deterministic_html_safe_and_self_contained(self):
+        template = "<html><script>window.DATA=__DASHBOARD_DATA__</script></html>"
+
+        first = render_dashboard({"b": 2, "a": "</script><tag>"}, template)
+        second = render_dashboard({"a": "</script><tag>", "b": 2}, template)
+
+        self.assertEqual(first, second)
+        self.assertNotIn("__DASHBOARD_DATA__", first)
+        self.assertNotIn("</script><tag>", first)
+        self.assertIn(r"\u003c/script>\u003ctag>", first)
+        self.assertNotIn("https://", first)
+
+    def test_render_requires_exactly_one_marker(self):
+        for template in ("<html></html>", "__DASHBOARD_DATA____DASHBOARD_DATA__"):
+            with self.subTest(template=template):
+                with self.assertRaisesRegex(ValueError, "exactly one"):
+                    render_dashboard({}, template)
+
+
+if __name__ == "__main__":
+    unittest.main()
