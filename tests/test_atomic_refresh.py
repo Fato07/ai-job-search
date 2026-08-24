@@ -592,6 +592,49 @@ class AtomicRefreshTests(unittest.TestCase):
             self.assertGreater(client.peak_active, 1)
             self.assertLessEqual(client.peak_active, 4)
 
+    def test_snippet_only_candidate_hydrates_before_classification(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._paths(Path(tmp))
+            message = self._message(
+                "snippet-id",
+                body="We received your application for the Applied AI Engineer role.",
+                subject="Application update",
+            )
+            message["snippet"] = "Application details are available."
+            client = MissingBulkBodyClient([message], {"snippet-id"})
+
+            summary = refresh(paths, client=client, sync_gmail=True, now=FIXED_NOW)
+
+            self.assertEqual(summary.matched, 1)
+            self.assertEqual(
+                sum(
+                    slug == "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID"
+                    for slug, _ in client.calls
+                ),
+                1,
+            )
+
+    def test_unrelated_bodyless_result_is_not_hydrated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._paths(Path(tmp))
+            message = self._message(
+                "unrelated-bodyless-id",
+                body="General industry digest.",
+                subject="Weekly engineering digest",
+            )
+            message["sender"] = "Industry Brief"
+            client = MissingBulkBodyClient([message], {"unrelated-bodyless-id"})
+
+            summary = refresh(paths, client=client, sync_gmail=True, now=FIXED_NOW)
+
+            self.assertEqual(summary.matched, 0)
+            self.assertFalse(
+                any(
+                    slug == "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID"
+                    for slug, _ in client.calls
+                )
+            )
+
     def test_missing_body_fallback_retries_once_after_transient_timeout(self):
         with tempfile.TemporaryDirectory() as tmp:
             paths = self._paths(Path(tmp))

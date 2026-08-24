@@ -455,12 +455,22 @@ def _sanitize_text(value: object, limit: int | None = None) -> str:
     return text
 
 
-def _message_body(message: Mapping[str, object]) -> str:
-    for key in ("messageText", "text", "body", "snippet"):
+def _full_body(message: Mapping[str, object]) -> str:
+    for key in ("messageText", "text", "body"):
         value = message.get(key)
         if isinstance(value, str) and value.strip():
             return _sanitize_text(value)
+    payload = message.get("payload")
+    if isinstance(payload, Mapping):
+        return _sanitize_text(_mime_text(payload))
     return ""
+
+
+def _message_body(message: Mapping[str, object]) -> str:
+    body = _full_body(message)
+    if body:
+        return body
+    return _sanitize_text(message.get("snippet"))
 
 
 def _sender_display(value: object) -> str:
@@ -1062,11 +1072,7 @@ def discover_mailbox(
     fallback = [
         (index, message)
         for index, message in enumerate(messages_for_classification)
-        if not _message_body(message)
-        and (
-            _candidate_metadata(message)
-            or hash_source_ref(_message_identity(message)) in seen_source_identities
-        )
+        if not _full_body(message) and _candidate_metadata(message)
     ]
     if len(fallback) > _MAX_FALLBACK_MESSAGES:
         raise ComposioError("Gmail missing-body fallback limit exceeded")
@@ -1080,7 +1086,7 @@ def discover_mailbox(
             ]
             hydrated = [future.result() for future in futures]
         for (index, _), message in zip(fallback, hydrated, strict=True):
-            if not _message_body(message):
+            if not _full_body(message):
                 raise ComposioError("Gmail candidate content unavailable")
             messages_for_classification[index] = message
 
