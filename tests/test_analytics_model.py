@@ -2,6 +2,7 @@ import csv
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from analytics.model import (
     TRACKER_COLUMNS,
@@ -44,6 +45,26 @@ class AnalyticsModelTests(unittest.TestCase):
             write_csv_atomic(path, TRACKER_COLUMNS, [row])
             self.assertEqual(read_csv_rows(path, {"application_id"}), [row])
             self.assertFalse(path.with_suffix(".csv.tmp").exists())
+
+    def test_atomic_csv_failure_preserves_destination_and_removes_temporary_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            path = directory / "tracker.csv"
+            original = b"existing tracker\n"
+            path.write_bytes(original)
+            entries_before = {entry.name for entry in directory.iterdir()}
+            row = {column: "" for column in TRACKER_COLUMNS}
+
+            with patch(
+                "analytics.model.os.replace", side_effect=OSError("replace failed")
+            ):
+                with self.assertRaisesRegex(OSError, "replace failed"):
+                    write_csv_atomic(path, TRACKER_COLUMNS, [row])
+
+            self.assertEqual(path.read_bytes(), original)
+            self.assertEqual(
+                {entry.name for entry in directory.iterdir()}, entries_before
+            )
 
 
 if __name__ == "__main__":

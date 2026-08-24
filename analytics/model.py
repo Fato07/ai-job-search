@@ -74,11 +74,19 @@ def write_csv_atomic(path: Path, columns: Sequence[str], rows: Iterable[Mapping[
     materialized = [{column: str(row.get(column, "")) for column in columns} for row in rows]
     validate_rows(materialized, columns)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        "w", newline="", encoding="utf-8", dir=path.parent, delete=False
-    ) as handle:
-        writer = csv.DictWriter(handle, fieldnames=columns)
-        writer.writeheader()
-        writer.writerows(materialized)
-        temp_path = Path(handle.name)
-    os.replace(temp_path, path)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w", newline="", encoding="utf-8", dir=path.parent, delete=False
+        ) as handle:
+            temp_path = Path(handle.name)
+            writer = csv.DictWriter(handle, fieldnames=columns)
+            writer.writeheader()
+            writer.writerows(materialized)
+        os.replace(temp_path, path)
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
