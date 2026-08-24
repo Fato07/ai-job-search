@@ -53,11 +53,17 @@ FEEDBACK = [{
     "application_id": "app-1",
     "category": "metric_rigor_provenance",
     "evidence_tier": "observed",
+    "evidence_excerpt": "The metric omitted its denominator.",
+    "required_action": "State the denominator and source.",
+    "confidence": "0.95",
 }]
 RULES = [{
     "rule_id": "rule-1",
     "category": "metric_rigor_provenance",
     "status": "active",
+    "required_action": "State the denominator and source.",
+    "confidence": 0.95,
+    "evidence_tiers": ["observed"],
     "source_feedback_ids": ["fb-1"],
 }]
 CONFIG = {
@@ -127,6 +133,12 @@ class DashboardBuildTests(unittest.TestCase):
         self.assertEqual(snapshot["today"]["screened"], 2)
         self.assertEqual(snapshot["today"]["submitted"], 1)
         self.assertEqual(snapshot["today"]["qualified"], 1)
+        self.assertEqual(snapshot["today"]["application_ids"], {
+            "screened": ["app-1", "app-2"],
+            "rejected_by_gate": [],
+            "submitted": ["app-1"],
+            "follow_ups": [],
+        })
         self.assertEqual(snapshot["funnel"]["screened"], 2)
         self.assertEqual(snapshot["funnel"]["submitted"], 1)
 
@@ -276,11 +288,17 @@ class DashboardBuildTests(unittest.TestCase):
             "application_id": "app-2",
             "category": "technical_depth",
             "evidence_tier": "explicit",
+            "evidence_excerpt": "The explanation lacked implementation depth.",
+            "required_action": "Lead with implementation evidence.",
+            "confidence": "0.9",
         }]
         rules = RULES + [{
             "rule_id": "rule-2",
             "category": "technical_depth",
             "status": "monitor",
+            "required_action": "Lead with implementation evidence.",
+            "confidence": 0.9,
+            "evidence_tiers": ["explicit"],
             "source_feedback_ids": ["fb-2"],
         }]
 
@@ -294,6 +312,24 @@ class DashboardBuildTests(unittest.TestCase):
             "active": 1, "monitor": 1, "resolved": 0,
         })
         self.assertEqual(snapshot["feedback"]["lineage"][0]["application_ids"], ["app-1"])
+        first_lineage = snapshot["feedback"]["lineage"][0]
+        self.assertEqual(first_lineage["category"], "metric_rigor_provenance")
+        self.assertEqual(first_lineage["required_action"], "State the denominator and source.")
+        self.assertEqual(first_lineage["confidence"], 0.95)
+        self.assertEqual(first_lineage["evidence_tiers"], ["observed"])
+        self.assertEqual(first_lineage["source_feedback"], [{
+            "feedback_id": "fb-1",
+            "application_id": "app-1",
+            "category": "metric_rigor_provenance",
+            "evidence_tier": "observed",
+            "evidence_excerpt": "The metric omitted its denominator.",
+            "required_action": "State the denominator and source.",
+            "confidence": 0.95,
+        }])
+        self.assertEqual(snapshot["feedback"]["category_application_ids"], {
+            "metric_rigor_provenance": ["app-1"],
+            "technical_depth": ["app-2"],
+        })
         self.assertEqual([row["application_id"] for row in snapshot["pipeline"]], ["app-1", "app-2"])
         self.assertEqual(snapshot["pipeline"][0]["application_date"], "2026-08-24")
         self.assertEqual(snapshot["pipeline"][0]["next_action"], "Follow up")
@@ -340,6 +376,10 @@ class DashboardBuildTests(unittest.TestCase):
         self.assertEqual(quality["invalid_event_timestamps"], ["bad-time"])
         self.assertEqual(quality["stale_rows"], ["app-old"])
         self.assertEqual(quality["review_queue"]["count"], 1)
+        self.assertEqual(quality["application_ids"]["duplicate_events"], ["app-1"])
+        self.assertEqual(quality["application_ids"]["invalid_event_timestamps"], ["app-1"])
+        self.assertEqual(quality["application_ids"]["stale_rows"], ["app-old"])
+        self.assertEqual(quality["application_ids"]["orphaned_events"], [])
 
     def test_render_is_deterministic_html_safe_and_self_contained(self):
         template = "<html><script>window.DATA=__DASHBOARD_DATA__</script></html>"
@@ -384,7 +424,7 @@ class DashboardBuildTests(unittest.TestCase):
         for control_name in (
             "date-start", "date-end", "role-family", "geography", "channel",
             "stage", "fit-band", "evidence-tier", "feedback-category",
-            "logistics-status", "seniority", "pipeline-search",
+            "logistics-status", "seniority", "pipeline-search", "cadence-granularity",
         ):
             with self.subTest(control_name=control_name):
                 self.assertRegex(
@@ -403,6 +443,17 @@ class DashboardBuildTests(unittest.TestCase):
         self.assertIn("intl.datetimeformat", lowered)
         self.assertIn("intl.numberformat", lowered)
         self.assertIn("content-visibility: auto", lowered)
+        for chart_id in (
+            "funnel-chart", "time-series-chart", "calibration-chart",
+            "feedback-category-chart", "aging-chart",
+        ):
+            with self.subTest(chart_id=chart_id):
+                self.assertIn(f'id="{chart_id}"', lowered)
+        self.assertIn('<details id="filter-disclosure"', lowered)
+        self.assertIn('id="filter-active-count"', lowered)
+        self.assertIn('data-application-id=', lowered)
+        self.assertIn("cadence interval", lowered)
+        self.assertIn("weekly", lowered)
 
     def test_generated_dashboard_embeds_snapshot_without_external_dependencies(self):
         template_path = Path(__file__).parents[1] / "dashboard" / "template.html"
@@ -413,6 +464,10 @@ class DashboardBuildTests(unittest.TestCase):
         self.assertNotIn("__DASHBOARD_DATA__", rendered)
         self.assertIn('"applications":2', rendered)
         self.assertIn('"application_id":"app-1"', rendered)
+        self.assertIn('"category_application_ids":', rendered)
+        self.assertIn('"evidence_excerpt":"The metric omitted its denominator."', rendered)
+        self.assertIn('"required_action":"State the denominator and source."', rendered)
+        self.assertIn('"application_ids":{"follow_ups":[],"rejected_by_gate":[],"screened":["app-1","app-2"],"submitted":["app-1"]}', rendered)
         self.assertNotRegex(rendered.casefold(), r'(?:src|href)\s*=\s*["\']https?://')
         self.assertNotRegex(rendered.casefold(), r'url\(\s*["\']?https?://')
         self.assertIn("Dashboard ready", rendered)

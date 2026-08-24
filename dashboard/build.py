@@ -507,6 +507,31 @@ def _feedback_snapshot(
         for row in feedback
         if _text(row.get("feedback_id"))
     }
+    category_application_ids: dict[str, set[str]] = defaultdict(set)
+    for row in feedback:
+        category = _text(row.get("category")) or "unknown"
+        application_id = _text(row.get("application_id"))
+        if application_id:
+            category_application_ids[category].add(application_id)
+
+    def confidence(value: object) -> float | None:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if math.isfinite(parsed) else None
+
+    def source_feedback(row: Mapping[str, object]) -> dict[str, object]:
+        return {
+            "feedback_id": _text(row.get("feedback_id")),
+            "application_id": _text(row.get("application_id")),
+            "category": _text(row.get("category")) or "unknown",
+            "evidence_tier": _text(row.get("evidence_tier")) or "unknown",
+            "evidence_excerpt": _text(row.get("evidence_excerpt")),
+            "required_action": _text(row.get("required_action")),
+            "confidence": confidence(row.get("confidence")),
+        }
+
     status_counts = {"active": 0, "monitor": 0, "resolved": 0}
     lineage: list[dict[str, object]] = []
     for rule in sorted(rules, key=lambda row: (_text(row.get("rule_id")), _stable_json(row))):
@@ -523,18 +548,41 @@ def _feedback_snapshot(
                 if _text(value) in feedback_by_id
             }
         ) if isinstance(source_ids_value, (list, tuple, set)) else []
+        sources = [source_feedback(feedback_by_id[feedback_id]) for feedback_id in source_ids]
         application_ids = sorted({
-            _text(feedback_by_id[feedback_id].get("application_id"))
-            for feedback_id in source_ids
+            _text(row.get("application_id"))
+            for row in sources
+            if _text(row.get("application_id"))
         })
+        evidence_tiers_value = rule.get("evidence_tiers", ())
+        evidence_tiers = sorted({
+            _text(value)
+            for value in evidence_tiers_value
+            if _text(value)
+        }) if isinstance(evidence_tiers_value, (list, tuple, set)) else []
+        if not evidence_tiers:
+            evidence_tiers = sorted({
+                _text(row.get("evidence_tier"))
+                for row in sources
+                if _text(row.get("evidence_tier"))
+            })
         lineage.append({
             "rule_id": _text(rule.get("rule_id")),
+            "category": _text(rule.get("category")) or "unknown",
             "status": status or "unknown",
+            "required_action": _text(rule.get("required_action")),
+            "confidence": confidence(rule.get("confidence")),
+            "evidence_tiers": evidence_tiers,
             "feedback_ids": source_ids,
             "application_ids": application_ids,
+            "source_feedback": sources,
         })
     return {
         "category_counts": dict(sorted(category_counts.items())),
+        "category_application_ids": {
+            category: sorted(ids)
+            for category, ids in sorted(category_application_ids.items())
+        },
         "evidence_tier_counts": dict(sorted(evidence_counts.items())),
         "rule_status_counts": status_counts,
         "lineage": lineage,
@@ -724,6 +772,40 @@ def build_snapshot(
         "early_funnel_conversion_available": not missing_early_events,
         "insufficient": bool(missing_early_events),
     }
+    def linked_application_ids(
+        rows: Sequence[Mapping[str, object]],
+        label_field: str,
+        labels: Sequence[str],
+    ) -> list[str]:
+        selected = set(labels)
+        return sorted({
+            _text(row.get("application_id"))
+            for row in rows
+            if _text(row.get(label_field)) in selected
+            and _text(row.get("application_id")) in application_ids
+        })
+
+    quality_application_ids = {
+        "missing_scores": missing_scores,
+        "missing_dates": missing_dates,
+        "ambiguous_statuses": ambiguous_statuses,
+        "stale_rows": stale_rows,
+        "duplicate_applications": duplicate_app_ids,
+        "duplicate_events": linked_application_ids(event_rows, "event_id", duplicate_events),
+        "duplicate_feedback": linked_application_ids(feedback_rows, "feedback_id", duplicate_feedback),
+        "orphaned_events": linked_application_ids(event_rows, "event_id", orphan_events),
+        "orphaned_feedback": linked_application_ids(feedback_rows, "feedback_id", orphan_feedback),
+        "invalid_event_timestamps": linked_application_ids(
+            event_rows, "event_id", invalid_event_timestamps
+        ),
+        "future_events": linked_application_ids(event_rows, "event_id", future_events),
+        "review_queue": sorted({
+            _text(row.get("application_id"))
+            for row in review_rows
+            if _text(row.get("application_id")) in application_ids
+            and _text(row.get("status")).casefold() in {"", "pending", "open"}
+        }),
+    }
     data_quality = {
         "missing_scores": missing_scores,
         "missing_dates": missing_dates,
@@ -742,6 +824,7 @@ def build_snapshot(
         "stale_rows": stale_rows,
         "review_queue": review_queue,
         "lifecycle_coverage": lifecycle_coverage,
+        "application_ids": quality_application_ids,
     }
 
     dates = [
@@ -772,6 +855,8 @@ def build_snapshot(
         for application_id in screened_today
         if _text(normalized_apps[application_id].get("screening_decision")).casefold() == "rejected"
     }
+    gate_rejections_today = explicit_gate_rejections | screened_gate_rejections
+    follow_ups_today = _ids_with_event(today_events, {"follow_up"})
     pipeline = _pipeline(
         normalized_apps,
         grouped_events,
@@ -802,7 +887,7 @@ def build_snapshot(
             "screening_target": int(config.get("daily_screening_target", 100)),
             "submission_soft_capacity": int(config.get("daily_submission_soft_capacity", 20)),
             "screened": len(screened_today),
-            "rejected_by_gate": len(explicit_gate_rejections | screened_gate_rejections),
+            "rejected_by_gate": len(gate_rejections_today),
             "qualified": sum(
                 _text(row.get("stage")).casefold() == "qualified"
                 for row in normalized_apps.values()
@@ -816,9 +901,15 @@ def build_snapshot(
                 for row in normalized_apps.values()
             ),
             "submitted": len(today_sets["submitted"]),
-            "follow_ups": len(_ids_with_event(today_events, {"follow_up"})),
+            "follow_ups": len(follow_ups_today),
             "stale": len(stale_rows),
             "review_queue": review_queue["count"],
+            "application_ids": {
+                "screened": sorted(screened_today),
+                "rejected_by_gate": sorted(gate_rejections_today),
+                "submitted": sorted(today_sets["submitted"]),
+                "follow_ups": sorted(follow_ups_today),
+            },
         },
         "funnel": {name: len(outcomes[name]) for name in _EVENT_TYPES},
         "daily_series": _daily_series(
