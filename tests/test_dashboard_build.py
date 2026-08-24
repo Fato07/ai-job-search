@@ -1,5 +1,7 @@
 import unittest
 from datetime import date
+from pathlib import Path
+import re
 
 from dashboard.build import build_snapshot, render_dashboard
 
@@ -356,6 +358,64 @@ class DashboardBuildTests(unittest.TestCase):
             with self.subTest(template=template):
                 with self.assertRaisesRegex(ValueError, "exactly one"):
                     render_dashboard({}, template)
+
+    def test_dashboard_template_exposes_accessible_self_contained_contract(self):
+        template_path = Path(__file__).parents[1] / "dashboard" / "template.html"
+        template = template_path.read_text(encoding="utf-8")
+        lowered = template.casefold()
+
+        self.assertEqual(template.count("__DASHBOARD_DATA__"), 1)
+        self.assertNotRegex(lowered, r'(?:src|href)\s*=\s*["\']https?://')
+        self.assertNotIn("@import", lowered)
+        self.assertNotRegex(lowered, r'url\(\s*["\']?https?://')
+        self.assertNotIn("transition: all", lowered)
+        self.assertIn("@media (prefers-reduced-motion: reduce)", lowered)
+
+        for landmark in (
+            '<a class="skip-link" href="#main">',
+            'aria-label="dashboard sections"',
+            "<header",
+            '<main id="main"',
+            '<div id="status" role="status" aria-live="polite"',
+        ):
+            self.assertIn(landmark, lowered)
+        self.assertEqual(len(re.findall(r"<h1(?:\s|>)", lowered)), 1)
+
+        for control_name in (
+            "date-start", "date-end", "role-family", "geography", "channel",
+            "stage", "fit-band", "evidence-tier", "feedback-category",
+            "logistics-status", "seniority", "pipeline-search",
+        ):
+            with self.subTest(control_name=control_name):
+                self.assertRegex(
+                    lowered,
+                    rf'<label[^>]+for=["\']{re.escape(control_name)}["\']',
+                )
+
+        self.assertIn("urlsearchparams", lowered)
+        self.assertIn("history.replacestate", lowered)
+        self.assertIn('addEventListener("popstate"', template)
+        self.assertIn('role="img"', lowered)
+        self.assertIn("<title", lowered)
+        self.assertIn("<desc", lowered)
+        self.assertIn("<table", lowered)
+        self.assertIn('aria-sort="', lowered)
+        self.assertIn("intl.datetimeformat", lowered)
+        self.assertIn("intl.numberformat", lowered)
+        self.assertIn("content-visibility: auto", lowered)
+
+    def test_generated_dashboard_embeds_snapshot_without_external_dependencies(self):
+        template_path = Path(__file__).parents[1] / "dashboard" / "template.html"
+        template = template_path.read_text(encoding="utf-8")
+
+        rendered = render_dashboard(self.build(), template)
+
+        self.assertNotIn("__DASHBOARD_DATA__", rendered)
+        self.assertIn('"applications":2', rendered)
+        self.assertIn('"application_id":"app-1"', rendered)
+        self.assertNotRegex(rendered.casefold(), r'(?:src|href)\s*=\s*["\']https?://')
+        self.assertNotRegex(rendered.casefold(), r'url\(\s*["\']?https?://')
+        self.assertIn("Dashboard ready", rendered)
 
 
 if __name__ == "__main__":

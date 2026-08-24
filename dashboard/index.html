@@ -1,0 +1,898 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f3eee4">
+  <title>Job Search Command Center</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --paper: oklch(95% 0.014 75);
+      --paper-raised: oklch(98% 0.009 78);
+      --paper-muted: oklch(91% 0.018 72);
+      --ink: oklch(23% 0.016 65);
+      --ink-muted: oklch(47% 0.018 65);
+      --rule: oklch(72% 0.025 68);
+      --rule-strong: oklch(50% 0.028 65);
+      --signal: oklch(61% 0.17 43);
+      --signal-strong: oklch(49% 0.16 39);
+      --signal-soft: oklch(90% 0.05 55);
+      --positive: oklch(48% 0.085 145);
+      --warning: oklch(58% 0.12 70);
+      --danger: oklch(52% 0.13 28);
+      --focus: oklch(58% 0.18 43);
+      --space-1: 0.25rem;
+      --space-2: 0.5rem;
+      --space-3: 0.75rem;
+      --space-4: 1rem;
+      --space-5: 1.5rem;
+      --space-6: 2rem;
+      --space-7: 3rem;
+      --space-8: 4rem;
+      --radius-sm: 0.25rem;
+      --radius-md: 0.5rem;
+      --max: 112rem;
+      --header-height: 4rem;
+      --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      --font-data: ui-monospace, "SFMono-Regular", Consolas, monospace;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --paper: oklch(20% 0.014 65);
+        --paper-raised: oklch(24% 0.016 65);
+        --paper-muted: oklch(28% 0.018 63);
+        --ink: oklch(91% 0.014 75);
+        --ink-muted: oklch(70% 0.018 72);
+        --rule: oklch(40% 0.025 65);
+        --rule-strong: oklch(63% 0.026 68);
+        --signal: oklch(70% 0.17 50);
+        --signal-strong: oklch(78% 0.14 55);
+        --signal-soft: oklch(33% 0.07 43);
+        --positive: oklch(67% 0.11 145);
+        --warning: oklch(75% 0.12 75);
+        --danger: oklch(70% 0.14 30);
+        --focus: oklch(76% 0.16 55);
+      }
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-width: 20rem;
+      overflow-x: hidden;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--font-ui);
+      font-size: 0.9375rem;
+      line-height: 1.5;
+      -webkit-tap-highlight-color: color-mix(in oklch, var(--signal) 22%, transparent);
+    }
+    button, input, select { font: inherit; touch-action: manipulation; }
+    button, a, input, select, summary { min-height: 2.75rem; }
+    a { color: var(--signal-strong); text-underline-offset: 0.18em; }
+    a:hover { color: var(--signal); text-decoration-thickness: 0.14em; }
+    button:hover { border-color: var(--signal); }
+    :focus-visible {
+      outline: 0.1875rem solid var(--focus);
+      outline-offset: 0.1875rem;
+      border-radius: var(--radius-sm);
+    }
+    h1, h2, h3 { margin: 0; line-height: 1.12; text-wrap: balance; }
+    p { text-wrap: pretty; }
+    [id] { scroll-margin-top: calc(var(--header-height) + var(--space-5)); }
+    .tabular, .metric-value, td[data-kind="number"], .chart-table { font-variant-numeric: tabular-nums; }
+    .mono { font-family: var(--font-data); font-size: 0.82em; overflow-wrap: anywhere; }
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    .skip-link {
+      position: fixed;
+      inset-block-start: var(--space-3);
+      inset-inline-start: max(var(--space-3), env(safe-area-inset-left));
+      z-index: 30;
+      transform: translateY(-180%);
+      padding: var(--space-3) var(--space-4);
+      background: var(--ink);
+      color: var(--paper-raised);
+      border: 1px solid var(--paper-raised);
+      text-decoration: none;
+    }
+    .skip-link:focus { transform: translateY(0); }
+    .site-header {
+      padding: max(var(--space-6), env(safe-area-inset-top)) max(var(--space-5), env(safe-area-inset-right)) var(--space-6) max(var(--space-5), env(safe-area-inset-left));
+      border-block-end: 2px solid var(--ink);
+      background: var(--paper-raised);
+    }
+    .header-grid {
+      max-width: var(--max);
+      margin-inline: auto;
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: var(--space-4);
+      align-items: end;
+    }
+    .header-title { grid-column: 1 / 7; min-width: 0; }
+    .eyebrow {
+      margin: 0 0 var(--space-2);
+      color: var(--signal-strong);
+      font-weight: 750;
+      text-transform: uppercase;
+      font-size: 0.75rem;
+    }
+    h1 { max-width: 18ch; font-size: 2.25rem; font-weight: 760; }
+    .snapshot-meta {
+      grid-column: 7 / -1;
+      margin: 0;
+      color: var(--ink-muted);
+      text-align: right;
+      font-size: 0.8125rem;
+      overflow-wrap: anywhere;
+    }
+    .section-nav {
+      position: sticky;
+      inset-block-start: 0;
+      z-index: 20;
+      display: flex;
+      gap: var(--space-1);
+      min-height: var(--header-height);
+      padding-inline: max(var(--space-5), env(safe-area-inset-left)) max(var(--space-5), env(safe-area-inset-right));
+      overflow-x: auto;
+      border-block-end: 1px solid var(--rule-strong);
+      background: color-mix(in oklch, var(--paper) 94%, transparent);
+    }
+    .section-nav a {
+      display: inline-flex;
+      align-items: center;
+      flex: 0 0 auto;
+      padding-inline: var(--space-4);
+      color: var(--ink-muted);
+      text-decoration: none;
+      font-size: 0.8125rem;
+      font-weight: 700;
+    }
+    .section-nav a:hover, .section-nav a[aria-current="location"] {
+      color: var(--ink);
+      box-shadow: inset 0 -0.1875rem 0 var(--signal);
+    }
+    .filter-deck {
+      border-block-end: 1px solid var(--rule-strong);
+      background: var(--paper-muted);
+    }
+    .filter-inner { max-width: var(--max); margin-inline: auto; padding: var(--space-5); }
+    .filter-heading {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: var(--space-4);
+      margin-block-end: var(--space-4);
+    }
+    .filter-heading h2 { font-size: 1rem; }
+    .filter-heading p { margin: 0; color: var(--ink-muted); font-size: 0.8125rem; }
+    .filters {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(8.5rem, 1fr));
+      gap: var(--space-3) var(--space-4);
+    }
+    .field { display: grid; gap: var(--space-1); min-width: 0; }
+    .field label { color: var(--ink-muted); font-size: 0.75rem; font-weight: 700; }
+    input, select {
+      width: 100%;
+      min-width: 0;
+      min-height: 2.75rem;
+      padding: 0 var(--space-3);
+      border: 1px solid var(--rule-strong);
+      border-radius: var(--radius-sm);
+      background-color: var(--paper-raised);
+      color: var(--ink);
+    }
+    .filter-actions { display: flex; align-items: end; gap: var(--space-2); }
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 2.75rem;
+      padding: var(--space-2) var(--space-4);
+      border: 1px solid var(--rule-strong);
+      border-radius: var(--radius-sm);
+      background: var(--paper-raised);
+      color: var(--ink);
+      font-weight: 720;
+      cursor: pointer;
+    }
+    .button-primary { border-color: var(--signal-strong); background: var(--signal-strong); color: var(--paper-raised); }
+    .button-primary:hover { background: var(--signal); color: var(--paper-raised); }
+    .button:disabled { cursor: not-allowed; opacity: 0.5; }
+    main { max-width: var(--max); margin-inline: auto; padding: var(--space-7) var(--space-5) var(--space-8); }
+    .dashboard-section { margin-block-end: var(--space-8); }
+    .section-heading {
+      display: grid;
+      grid-template-columns: minmax(0, 5fr) minmax(16rem, 3fr);
+      gap: var(--space-5);
+      align-items: end;
+      margin-block-end: var(--space-5);
+      padding-block-end: var(--space-3);
+      border-block-end: 2px solid var(--ink);
+    }
+    .section-heading h2 { font-size: 1.55rem; }
+    .section-heading p { margin: 0; color: var(--ink-muted); text-align: right; }
+    .coverage-note, .notice {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: var(--space-3);
+      padding: var(--space-4);
+      border: 1px solid var(--rule-strong);
+      background: var(--signal-soft);
+    }
+    .coverage-note strong { font-size: 0.8125rem; text-transform: uppercase; }
+    .throughput-bands { display: grid; grid-template-columns: 1fr 1fr; border: 2px solid var(--ink); }
+    .throughput-band { padding: var(--space-5); background: var(--paper-raised); }
+    .throughput-band + .throughput-band { border-inline-start: 1px solid var(--ink); }
+    .band-top { display: flex; justify-content: space-between; gap: var(--space-3); align-items: baseline; }
+    .band-label { margin: 0; color: var(--ink-muted); font-size: 0.8rem; font-weight: 750; text-transform: uppercase; }
+    .band-value { margin: 0; font-size: 1.55rem; font-weight: 760; font-variant-numeric: tabular-nums; }
+    .band-note { margin: var(--space-2) 0 0; color: var(--ink-muted); max-width: 68ch; }
+    .meter { height: 0.5rem; margin-block-start: var(--space-4); background: var(--paper-muted); border: 1px solid var(--rule); }
+    .meter > span { display: block; height: 100%; background: var(--signal); }
+    .ledger-strip {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      margin-block-start: var(--space-4);
+      border-block: 1px solid var(--rule-strong);
+    }
+    .ledger-item { min-width: 0; padding: var(--space-4); }
+    .ledger-item + .ledger-item { border-inline-start: 1px solid var(--rule); }
+    .metric-value { display: block; font-size: 1.35rem; font-weight: 760; }
+    .metric-label { display: block; color: var(--ink-muted); font-size: 0.75rem; overflow-wrap: anywhere; }
+    .two-column { display: grid; grid-template-columns: minmax(0, 7fr) minmax(18rem, 5fr); gap: var(--space-6); }
+    .panel { min-width: 0; border-block: 1px solid var(--rule-strong); padding-block: var(--space-4); }
+    .panel h3 { margin-block-end: var(--space-3); font-size: 1rem; }
+    .chart-shell { min-height: 16rem; }
+    .chart-shell svg { display: block; width: 100%; height: auto; max-height: 24rem; overflow: visible; }
+    .chart-shell .bar-bg { fill: var(--paper-muted); }
+    .chart-shell .bar { fill: var(--signal); }
+    .chart-shell .bar-secondary { fill: var(--ink-muted); }
+    .chart-shell .axis { fill: var(--ink-muted); font-family: var(--font-ui); font-size: 11px; }
+    .chart-shell .value { fill: var(--ink); font-family: var(--font-data); font-size: 11px; font-variant-numeric: tabular-nums; }
+    .chart-shell .line { fill: none; stroke: var(--signal); stroke-width: 3; vector-effect: non-scaling-stroke; }
+    .chart-shell .dot { fill: var(--signal); stroke: var(--paper-raised); stroke-width: 2; }
+    .chart-table { width: 100%; border-collapse: collapse; margin-block-start: var(--space-4); font-size: 0.8125rem; }
+    .chart-table caption { padding-block-end: var(--space-2); text-align: left; color: var(--ink-muted); }
+    .chart-table th, .chart-table td { padding: var(--space-2); border-block-start: 1px solid var(--rule); text-align: left; }
+    .chart-table td:last-child { text-align: right; }
+    .feedback-summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin-block-end: var(--space-4);
+      border-block: 1px solid var(--rule-strong);
+    }
+    .feedback-summary > div { padding: var(--space-4); }
+    .feedback-summary > div + div { border-inline-start: 1px solid var(--rule); }
+    details { border-block-start: 1px solid var(--rule); }
+    details:last-child { border-block-end: 1px solid var(--rule); }
+    summary {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: var(--space-4);
+      align-items: center;
+      min-width: 0;
+      padding: var(--space-3) var(--space-2);
+      cursor: pointer;
+    }
+    summary:hover { background: var(--paper-muted); }
+    summary::marker { color: var(--signal); }
+    .summary-title { min-width: 0; overflow-wrap: anywhere; font-weight: 720; }
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 1.75rem;
+      padding-inline: var(--space-2);
+      border: 1px solid currentColor;
+      border-radius: 999px;
+      color: var(--ink-muted);
+      font-size: 0.72rem;
+      font-weight: 750;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .status-chip::before { content: "●"; margin-inline-end: var(--space-1); font-size: 0.65em; }
+    .status-active { color: var(--danger); }
+    .status-monitor { color: var(--warning); }
+    .status-resolved { color: var(--positive); }
+    .detail-body { padding: var(--space-2) var(--space-4) var(--space-5); }
+    .detail-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); }
+    .detail-grid dt { color: var(--ink-muted); font-size: 0.75rem; font-weight: 700; }
+    .detail-grid dd { margin: var(--space-1) 0 0; overflow-wrap: anywhere; }
+    .table-tools {
+      display: flex;
+      justify-content: space-between;
+      gap: var(--space-4);
+      align-items: end;
+      margin-block-end: var(--space-3);
+    }
+    .search-field { width: min(32rem, 100%); }
+    .table-count { color: var(--ink-muted); white-space: nowrap; }
+    .table-scroll { overflow-x: auto; border: 1px solid var(--rule-strong); background: var(--paper-raised); }
+    .pipeline-table { width: 100%; min-width: 68rem; border-collapse: collapse; }
+    .pipeline-table th, .pipeline-table td { padding: var(--space-3); border-block-end: 1px solid var(--rule); text-align: left; vertical-align: top; }
+    .pipeline-table th { position: sticky; inset-block-start: 0; z-index: 5; background: var(--paper-muted); font-size: 0.75rem; }
+    .pipeline-table tbody tr { content-visibility: auto; contain-intrinsic-size: auto 3.5rem; }
+    .pipeline-table tbody tr:hover { background: var(--paper-muted); }
+    .sort-button {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-1);
+      min-height: 2.75rem;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--ink);
+      font-weight: 750;
+      cursor: pointer;
+    }
+    .sort-button::after { content: "↕"; color: var(--ink-muted); }
+    th[aria-sort="ascending"] .sort-button::after { content: "↑"; color: var(--signal-strong); }
+    th[aria-sort="descending"] .sort-button::after { content: "↓"; color: var(--signal-strong); }
+    .company-cell { max-width: 18rem; }
+    .company-cell strong, .company-cell span { display: block; overflow-wrap: anywhere; }
+    .company-cell span { color: var(--ink-muted); }
+    .row-link { display: inline-flex; align-items: center; white-space: nowrap; }
+    .detail-grid a, .quality-action a { display: inline-flex; align-items: center; min-height: 2.75rem; }
+    .pagination { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding-block-start: var(--space-3); }
+    .pagination-actions { display: flex; gap: var(--space-2); }
+    .quality-list { list-style: none; margin: 0; padding: 0; border-block: 1px solid var(--rule-strong); }
+    .quality-item { display: grid; grid-template-columns: minmax(12rem, 1fr) auto minmax(18rem, 2fr); gap: var(--space-4); align-items: baseline; padding: var(--space-3); }
+    .quality-item + .quality-item { border-block-start: 1px solid var(--rule); }
+    .quality-count { font-family: var(--font-data); font-weight: 760; }
+    .quality-action { text-align: right; overflow-wrap: anywhere; }
+    .empty-state, .error-state {
+      display: grid;
+      justify-items: start;
+      gap: var(--space-3);
+      padding: var(--space-6);
+      border: 1px dashed var(--rule-strong);
+      background: var(--paper-raised);
+    }
+    .empty-state p, .error-state p { margin: 0; max-width: 65ch; color: var(--ink-muted); }
+    .footer-note { padding: var(--space-5) max(var(--space-5), env(safe-area-inset-right)) max(var(--space-5), env(safe-area-inset-bottom)) max(var(--space-5), env(safe-area-inset-left)); border-block-start: 1px solid var(--rule-strong); color: var(--ink-muted); font-size: 0.8125rem; }
+    .footer-note p { max-width: var(--max); margin: 0 auto; }
+    #status {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    @media (max-width: 72rem) {
+      .filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .ledger-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .ledger-item:nth-child(5) { border-inline-start: 0; }
+      .ledger-item:nth-child(n+5) { border-block-start: 1px solid var(--rule); }
+      .two-column { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+      .two-column > * { grid-column: span 3; }
+    }
+    @media (max-width: 45rem) {
+      :root { --header-height: 3.5rem; }
+      .site-header { padding-block: var(--space-5); }
+      .header-grid, .section-heading { grid-template-columns: 1fr; }
+      .header-title, .snapshot-meta { grid-column: 1; text-align: left; }
+      h1 { font-size: 1.75rem; }
+      .section-nav { padding-inline: max(var(--space-2), env(safe-area-inset-left)) max(var(--space-2), env(safe-area-inset-right)); }
+      .section-nav a { padding-inline: var(--space-3); }
+      .filter-inner, main { padding-inline: max(var(--space-4), env(safe-area-inset-left)); }
+      .filter-heading { align-items: start; flex-direction: column; }
+      .filters { grid-template-columns: 1fr; }
+      .filter-actions { align-items: stretch; }
+      .filter-actions .button { flex: 1; }
+      main { padding-block-start: var(--space-6); }
+      .section-heading p { text-align: left; }
+      .throughput-bands, .two-column { grid-template-columns: 1fr; }
+      .throughput-band + .throughput-band { border-inline-start: 0; border-block-start: 1px solid var(--ink); }
+      .two-column > * { grid-column: 1; }
+      .ledger-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .ledger-item:nth-child(odd) { border-inline-start: 0; }
+      .ledger-item:nth-child(even) { border-inline-start: 1px solid var(--rule); }
+      .ledger-item:nth-child(n+3) { border-block-start: 1px solid var(--rule); }
+      .feedback-summary { grid-template-columns: 1fr; }
+      .feedback-summary > div + div { border-inline-start: 0; border-block-start: 1px solid var(--rule); }
+      summary { grid-template-columns: minmax(0, 1fr) auto; }
+      summary .mono { grid-column: 1 / -1; }
+      .detail-grid { grid-template-columns: 1fr; }
+      .table-tools { align-items: stretch; flex-direction: column; }
+      .search-field { width: 100%; }
+      .quality-item { grid-template-columns: 1fr auto; }
+      .quality-action { grid-column: 1 / -1; text-align: left; }
+      .pagination { align-items: stretch; flex-direction: column; }
+      .pagination-actions .button { flex: 1; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to analytics</a>
+  <header class="site-header">
+    <div class="header-grid">
+      <div class="header-title">
+        <p class="eyebrow">Application Intelligence</p>
+        <h1>Job Search Command Center</h1>
+      </div>
+      <p id="snapshot-meta" class="snapshot-meta tabular">Loading snapshot…</p>
+    </div>
+  </header>
+  <nav aria-label="Dashboard sections" class="section-nav">
+    <a href="#command-center" data-tab="today">Today</a>
+    <a href="#funnel" data-tab="funnel">Funnel</a>
+    <a href="#calibration" data-tab="calibration">Calibration</a>
+    <a href="#feedback" data-tab="feedback">Feedback</a>
+    <a href="#pipeline" data-tab="pipeline">Pipeline</a>
+    <a href="#data-quality" data-tab="quality">Data Quality</a>
+  </nav>
+
+  <aside class="filter-deck" aria-labelledby="filters-heading">
+    <div class="filter-inner">
+      <div class="filter-heading">
+        <h2 id="filters-heading">Shared Filters</h2>
+        <p id="filter-scope">Every view uses the same application set.</p>
+      </div>
+      <form id="filters" class="filters" autocomplete="off">
+        <div class="field"><label for="date-start">From Date</label><input id="date-start" name="date_start" type="date"></div>
+        <div class="field"><label for="date-end">To Date</label><input id="date-end" name="date_end" type="date"></div>
+        <div class="field"><label for="role-family">Role Family</label><select id="role-family" name="role_family"><option value="">All Role Families</option></select></div>
+        <div class="field"><label for="geography">Geography</label><select id="geography" name="geography"><option value="">All Geographies</option></select></div>
+        <div class="field"><label for="channel">Channel</label><select id="channel" name="channel"><option value="">All Channels</option></select></div>
+        <div class="field"><label for="stage">Stage</label><select id="stage" name="stage"><option value="">All Stages</option></select></div>
+        <div class="field"><label for="fit-band">Fit Band</label><select id="fit-band" name="fit_band"><option value="">All Fit Bands</option></select></div>
+        <div class="field"><label for="evidence-tier">Evidence Tier</label><select id="evidence-tier" name="evidence_tier"><option value="">All Evidence Tiers</option></select></div>
+        <div class="field"><label for="feedback-category">Feedback Category</label><select id="feedback-category" name="feedback_category"><option value="">All Feedback Categories</option></select></div>
+        <div class="field"><label for="logistics-status">Logistics Status</label><select id="logistics-status" name="logistics_status"><option value="">All Logistics Statuses</option></select></div>
+        <div class="field"><label for="seniority">Seniority</label><select id="seniority" name="seniority"><option value="">All Seniority Levels</option></select></div>
+        <div class="filter-actions"><button class="button" id="reset-filters" type="button">Reset Filters</button></div>
+      </form>
+    </div>
+  </aside>
+
+  <main id="main" tabindex="-1">
+    <section id="command-center" class="dashboard-section" aria-labelledby="command-title">
+      <div class="section-heading"><h2 id="command-title">Today</h2><p>Capacity, readiness, and review pressure at a glance.</p></div>
+      <div id="coverage-note"></div>
+      <div id="command-kpis"></div>
+    </section>
+
+    <section id="funnel" class="dashboard-section" aria-labelledby="funnel-title">
+      <div class="section-heading"><h2 id="funnel-title">Funnel &amp; Velocity</h2><p>Recorded lifecycle volume and submission cadence for the visible set.</p></div>
+      <div class="two-column">
+        <div class="panel"><h3>Recorded Funnel</h3><div id="funnel-chart" class="chart-shell"></div></div>
+        <div class="panel"><h3>Submission Cadence</h3><div id="time-series-chart" class="chart-shell"></div></div>
+      </div>
+    </section>
+
+    <section id="calibration" class="dashboard-section" aria-labelledby="calibration-title">
+      <div class="section-heading"><h2 id="calibration-title">Fit Calibration</h2><p>Submission progression by fit band, with denominators kept visible.</p></div>
+      <div id="calibration-chart" class="chart-shell"></div>
+    </section>
+
+    <section id="feedback" class="dashboard-section" aria-labelledby="feedback-title">
+      <div class="section-heading"><h2 id="feedback-title">Feedback Intelligence</h2><p>Trace active rules back to the applications that supplied evidence.</p></div>
+      <div id="feedback-list"></div>
+    </section>
+
+    <section id="pipeline" class="dashboard-section" aria-labelledby="pipeline-title">
+      <div class="section-heading"><h2 id="pipeline-title">Pipeline Explorer</h2><p>Search, sort, and open the source record without leaving context.</p></div>
+      <div class="table-tools">
+        <div class="field search-field"><label for="pipeline-search">Search Pipeline</label><input id="pipeline-search" name="search" type="search" placeholder="Company, role, status, or application ID…" autocomplete="off"></div>
+        <p id="pipeline-count" class="table-count tabular"></p>
+      </div>
+      <div id="pipeline-table"></div>
+      <div id="pipeline-pagination" class="pagination"></div>
+    </section>
+
+    <section id="data-quality" class="dashboard-section" aria-labelledby="quality-title">
+      <div class="section-heading"><h2 id="quality-title">Data Quality</h2><p>Coverage gaps and records that need an explicit review.</p></div>
+      <div id="quality-list"></div>
+    </section>
+  </main>
+
+  <footer class="footer-note"><p>This is a local snapshot. Source links open only when selected; the dashboard itself makes no network requests.</p></footer>
+  <div id="status" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <noscript><p class="error-state">JavaScript is required to explore this embedded snapshot. Enable JavaScript, then reload this file.</p></noscript>
+  <script>
+    "use strict";
+    window.__JOB_ANALYTICS__ = {"calibration":{"channel":[{"applications":24,"conversion_rates":{"interview":0.0,"offer":0.0,"response":0.631578947368421},"insufficient_sample":false,"interviewed":0,"offered":0,"responded":12,"submitted":19,"value":"Ashby"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":1,"value":"Ashby + direct outreach"},{"applications":2,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":1,"value":"Ashby / Camunda careers"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":1,"value":"Ashby / Eigen Labs careers"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":1,"value":"Ashby / HiPeople careers"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":1,"value":"Ashby / Luma Careers"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":1,"submitted":1,"value":"Ashby / RobCo careers"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":1,"submitted":1,"value":"Bolt careers page"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":1,"value":"Braintrust careers / Ashby"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":1,"value":"Company Google Form"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":1,"value":"Company careers form"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":1,"value":"Company careers page"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":1,"value":"Direct (founder outreach)"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":1,"value":"Direct careers page"},{"applications":3,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":1,"submitted":3,"value":"Direct email"},{"applications":1,"insufficient_sample":true,"interviewed":1,"offered":0,"responded":1,"submitted":1,"value":"Direct email / Google Calendar"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":1,"value":"Email / R8 Technologies careers"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":1,"value":"Google Careers"},{"applications":5,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":1,"submitted":4,"value":"Greenhouse"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":1,"submitted":1,"value":"Greenhouse / Carta careers"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":1,"submitted":1,"value":"Greenhouse / Databricks careers"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":1,"submitted":1,"value":"Greenhouse / DoiT careers"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":1,"value":"Gusto"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":1,"submitted":1,"value":"Helsing careers / LinkedIn"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":0,"value":"Jack & Jill"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":1,"value":"JazzHR / Sky Spy careers"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":1,"value":"Join.com"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":0,"value":"Legora careers"},{"applications":5,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":3,"value":"Lever"},{"applications":11,"conversion_rates":{"interview":0.0,"offer":0.0,"response":0.16666666666666666},"insufficient_sample":false,"interviewed":0,"offered":0,"responded":1,"submitted":6,"value":"LinkedIn"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":0,"value":"LinkedIn / Jack & Jill"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":0,"value":"LinkedIn / NUS careers"},{"applications":1,"insufficient_sample":true,"interviewed":1,"offered":0,"responded":1,"submitted":1,"value":"LinkedIn / Nordea careers"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":0,"value":"LinkedIn / Oho Group"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":0,"value":"LinkedIn / recruiter"},{"applications":2,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":0,"value":"LinkedIn Gmail alert"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":1,"value":"LinkedIn InMail"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":0,"value":"LinkedIn InMail + Calendly + direct email"},{"applications":2,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":0,"value":"LinkedIn post / Google Careers"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":1,"value":"Microsoft Forms"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":1,"value":"Ponty/Safemind"},{"applications":3,"insufficient_sample":true,"interviewed":1,"offered":0,"responded":1,"submitted":3,"value":"Teamtailor"},{"applications":2,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":1,"submitted":2,"value":"Teamtailor / CVKeskus"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":1,"value":"Teamtailor / ESTO careers"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":1,"value":"Vercel careers"},{"applications":1,"insufficient_sample":true,"interviewed":1,"offered":0,"responded":1,"submitted":1,"value":"Wise jobs / LinkedIn"},{"applications":2,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":1,"value":"Workable"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":0,"value":"Y Combinator"},{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":1,"value":"gohiring"}],"fit_band":[{"applications":1,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":0,"submitted":0,"value":"0-59"},{"applications":2,"insufficient_sample":true,"interviewed":0,"offered":0,"responded":1,"submitted":1,"value":"60-69"},{"applications":10,"conversion_rates":{"interview":0.0,"offer":0.0,"response":0.2857142857142857},"insufficient_sample":false,"interviewed":0,"offered":0,"responded":2,"submitted":7,"value":"70-79"},{"applications":51,"conversion_rates":{"interview":0.08108108108108109,"offer":0.0,"response":0.40540540540540543},"insufficient_sample":false,"interviewed":3,"offered":0,"responded":15,"submitted":37,"value":"80-89"},{"applications":22,"conversion_rates":{"interview":0.0,"offer":0.0,"response":0.2631578947368421},"insufficient_sample":false,"interviewed":0,"offered":0,"responded":5,"submitted":19,"value":"90-100"},{"applications":13,"conversion_rates":{"interview":0.125,"offer":0.0,"response":0.375},"insufficient_sample":false,"interviewed":1,"offered":0,"responded":3,"submitted":8,"value":"missing"}],"geography":[{"applications":99,"conversion_rates":{"interview":0.05555555555555555,"offer":0.0,"response":0.3611111111111111},"insufficient_sample":false,"interviewed":4,"offered":0,"responded":26,"submitted":72,"value":"unknown"}],"logistics_status":[{"applications":99,"conversion_rates":{"interview":0.05555555555555555,"offer":0.0,"response":0.3611111111111111},"insufficient_sample":false,"interviewed":4,"offered":0,"responded":26,"submitted":72,"value":"unknown"}],"role_family":[{"applications":8,"conversion_rates":{"interview":0.14285714285714285,"offer":0.0,"response":0.42857142857142855},"insufficient_sample":false,"interviewed":1,"offered":0,"responded":3,"submitted":7,"value":"ai_platform"},{"applications":9,"conversion_rates":{"interview":0.0,"offer":0.0,"response":0.4},"insufficient_sample":false,"interviewed":0,"offered":0,"responded":2,"submitted":5,"value":"ai_security"},{"applications":37,"conversion_rates":{"interview":0.10714285714285714,"offer":0.0,"response":0.42857142857142855},"insufficient_sample":false,"interviewed":3,"offered":0,"responded":12,"submitted":28,"value":"applied_ai"},{"applications":18,"conversion_rates":{"interview":0.0,"offer":0.0,"response":0.2857142857142857},"insufficient_sample":false,"interviewed":0,"offered":0,"responded":4,"submitted":14,"value":"forward_deployed"},{"applications":27,"conversion_rates":{"interview":0.0,"offer":0.0,"response":0.2777777777777778},"insufficient_sample":false,"interviewed":0,"offered":0,"responded":5,"submitted":18,"value":"other"}],"seniority":[{"applications":99,"conversion_rates":{"interview":0.05555555555555555,"offer":0.0,"response":0.3611111111111111},"insufficient_sample":false,"interviewed":4,"offered":0,"responded":26,"submitted":72,"value":"unknown"}]},"daily_series":[{"date":"2026-07-01","discovered":1,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":1},{"date":"2026-07-02","discovered":2,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":1},{"date":"2026-07-03","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":0},{"date":"2026-07-04","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":0},{"date":"2026-07-05","discovered":15,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":9},{"date":"2026-07-06","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":0},{"date":"2026-07-07","discovered":1,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":1},{"date":"2026-07-08","discovered":2,"interviewed":0,"offered":0,"qualified":0,"responded":1,"screened":0,"submitted":2},{"date":"2026-07-09","discovered":2,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":1},{"date":"2026-07-10","discovered":1,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":1},{"date":"2026-07-11","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":0},{"date":"2026-07-12","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":0},{"date":"2026-07-13","discovered":8,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":4},{"date":"2026-07-14","discovered":0,"interviewed":1,"offered":0,"qualified":0,"responded":1,"screened":0,"submitted":0},{"date":"2026-07-15","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":1},{"date":"2026-07-16","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":2},{"date":"2026-07-17","discovered":3,"interviewed":0,"offered":0,"qualified":0,"responded":2,"screened":0,"submitted":2},{"date":"2026-07-18","discovered":1,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":1},{"date":"2026-07-19","discovered":20,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":11},{"date":"2026-07-20","discovered":7,"interviewed":0,"offered":0,"qualified":0,"responded":3,"screened":0,"submitted":5},{"date":"2026-07-21","discovered":4,"interviewed":0,"offered":0,"qualified":0,"responded":1,"screened":0,"submitted":4},{"date":"2026-07-22","discovered":4,"interviewed":0,"offered":0,"qualified":0,"responded":2,"screened":0,"submitted":2},{"date":"2026-07-23","discovered":7,"interviewed":1,"offered":0,"qualified":0,"responded":1,"screened":0,"submitted":5},{"date":"2026-07-24","discovered":0,"interviewed":2,"offered":0,"qualified":0,"responded":2,"screened":0,"submitted":0},{"date":"2026-07-25","discovered":0,"interviewed":1,"offered":0,"qualified":0,"responded":2,"screened":0,"submitted":0},{"date":"2026-07-26","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":0},{"date":"2026-07-27","discovered":2,"interviewed":1,"offered":0,"qualified":0,"responded":3,"screened":0,"submitted":2},{"date":"2026-07-28","discovered":1,"interviewed":0,"offered":0,"qualified":0,"responded":2,"screened":0,"submitted":0},{"date":"2026-07-29","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":0},{"date":"2026-07-30","discovered":0,"interviewed":1,"offered":0,"qualified":0,"responded":2,"screened":0,"submitted":0},{"date":"2026-07-31","discovered":0,"interviewed":1,"offered":0,"qualified":0,"responded":3,"screened":0,"submitted":0},{"date":"2026-08-01","discovered":4,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":1},{"date":"2026-08-02","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":2},{"date":"2026-08-03","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":0},{"date":"2026-08-04","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":1,"screened":0,"submitted":0},{"date":"2026-08-05","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":1,"screened":0,"submitted":0},{"date":"2026-08-06","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":0},{"date":"2026-08-07","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":0},{"date":"2026-08-08","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":0},{"date":"2026-08-09","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":0},{"date":"2026-08-10","discovered":2,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":2},{"date":"2026-08-11","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":0},{"date":"2026-08-12","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":1,"screened":0,"submitted":0},{"date":"2026-08-13","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":0},{"date":"2026-08-14","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":0},{"date":"2026-08-15","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":0},{"date":"2026-08-16","discovered":3,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":3},{"date":"2026-08-17","discovered":5,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":5},{"date":"2026-08-18","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":0},{"date":"2026-08-19","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":0},{"date":"2026-08-20","discovered":2,"interviewed":0,"offered":0,"qualified":0,"responded":1,"screened":0,"submitted":2},{"date":"2026-08-21","discovered":2,"interviewed":0,"offered":0,"qualified":0,"responded":3,"screened":0,"submitted":2},{"date":"2026-08-22","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":0},{"date":"2026-08-23","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":0,"screened":0,"submitted":0},{"date":"2026-08-24","discovered":0,"interviewed":0,"offered":0,"qualified":0,"responded":1,"screened":0,"submitted":0}],"data_quality":{"ambiguous_statuses":[],"duplicates":{"application_ids":[],"events":[],"feedback":[],"roles_or_sources":[]},"future_events":[],"invalid_event_timestamps":[],"lifecycle_coverage":{"early_funnel_conversion_available":false,"insufficient":true,"missing_event_types":["qualified","screened"]},"missing_dates":[],"missing_scores":["app-20260702-jobgether-ai-engineer-remote-international-a35902ca","app-20260702-turing-remote-software-engineer-fa442f34","app-20260705-elevenlabs-enterprise-solutions-engineer-netherlands-fb216ad2","app-20260707-monogram-software-engineer-ai-interfaces-8f6ad17e","app-20260710-dragonfly-askdragonfly-com-senior-ai-engineer-58662bcc","app-20260719-unknown-unknown-greenhouse-job-id-7759694-493cc408","app-20260720-hcltech-ai-platform-engineer-devops-specialist-ba384d03","app-20260720-m-files-ai-native-engineer-agentic-development-d91ba209","app-20260721-seb-eesti-ai-engineering-architect-in-delivery-excellence-e959e0d9","app-20260722-lufinity-ai-senior-ai-software-engineer-446d4903","app-20260723-brillian-agentic-engineering-lead-6992c073","app-20260723-helsing-staff-software-engineer-5c4ea4b5","app-20260723-kapo-estonian-internal-security-service-ai-susteemide-arendaja-298ecfd4"],"orphaned_application_rows":[],"orphaned_events":[],"orphaned_feedback":[],"review_queue":{"count":0,"items":[]},"stale_rows":["app-20260701-digital-workforce-senior-ai-agent-developer-0e880ccf","app-20260702-jobgether-ai-engineer-remote-international-a35902ca","app-20260702-turing-remote-software-engineer-fa442f34","app-20260705-alpha-signal-llc-backend-engineer-9bd49c01","app-20260705-auxilius-ai-ai-engineer-llmops-evaluation-7c1a6adb","app-20260705-clera-founding-engineer-3m-pre-seed-c2d8abf7","app-20260705-elevenlabs-enterprise-solutions-engineer-netherlands-fb216ad2","app-20260705-elevenlabs-forward-deployed-engineer-software-engineer-spain-d8cbb347","app-20260705-flutter-uk-ireland-ai-security-engineer-b0e5617c","app-20260705-kraken-payward-senior-software-engineer-frontend-pro-6eda25ba","app-20260705-mercor-ml-engineer-model-eval-up-to-85-hr-3b95cbe2","app-20260705-mistral-ai-ai-deployment-strategist-cybersecurity-emea-ceabbe7f","app-20260705-mistral-ai-applied-ai-engineer-cybersecurity-2ea2bbb2","app-20260705-mistral-ai-applied-ai-evaluation-engineer-e826f027","app-20260705-mistral-ai-applied-ai-forward-deployed-ml-engineer-emea-65783db9","app-20260705-traide-ai-ai-engineer-7668a6b8","app-20260707-monogram-software-engineer-ai-interfaces-8f6ad17e","app-20260708-european-chatbot-agentic-ai-summit-speaker-proposal-production-agentic-ai-117a6b0c","app-20260708-general-intelligence-company-applied-ai-engineer-agent-9a2ed1f0","app-20260709-anaplan-senior-security-architect-product-security-028b225b","app-20260713-coinspaid-ai-platform-engineer-5d88899e","app-20260713-elevenlabs-enterprise-solutions-engineer-europe-3b601e78","app-20260713-perplexity-member-of-technical-staff-software-engineer-data-flywheel-dc5f6da0","app-20260713-stackblitz-bolt-new-senior-applied-ai-engineer-48ec8f83","app-20260713-vertus-data-engineer-full-stack-developer-432e77dd","app-20260717-elevenlabs-infrastructure-security-engineer-badbef83","app-20260717-openai-forward-deployed-engineer-stockholm-31754761","app-20260717-poolside-member-of-security-corporate-technology-6f281462","app-20260718-xfigura-full-stack-engineer-c73a080e","app-20260719-adria-solutions-ltd-founding-ai-engineer-31655ffb","app-20260719-baseten-forward-deployed-engineer-edb3041c","app-20260719-cohere-forward-deployed-engineer-agentic-platform-uk-europe-c16a3a30","app-20260719-combinely-founding-ai-engineer-uk-81406fe7","app-20260719-enjins-forward-deployed-ai-engineer-0fef658d","app-20260719-keyrus-group-forward-deployed-ai-engineer-81af828f","app-20260719-klar-partners-safemind-forward-deployed-ai-engineer-catalyst-team-b6f6c20e","app-20260719-kyber-founding-engineer-2e1ede4f","app-20260719-national-university-of-singapore-ai-engineer-ai-agents-and-platform-integration-b0195556","app-20260719-oho-group-founding-ai-engineer-early-stage-ai-start-up-london-2f8c28fa","app-20260719-openhuman-jack-jill-founding-ai-engineer-equity-00d68851","app-20260719-sable-product-engineer-d661534a","app-20260719-unknown-unknown-greenhouse-job-id-7759694-493cc408","app-20260720-eqt-group-application-ai-cyber-security-engineer-eef4ec0f","app-20260720-grasp-ai-engineer-f77f9382","app-20260720-hcltech-ai-platform-engineer-devops-specialist-ba384d03","app-20260720-legora-full-stack-engineer-fde-style-legal-ai-systems-d26ad368","app-20260720-m-files-ai-native-engineer-agentic-development-d91ba209","app-20260722-google-cloud-software-engineer-ii-agent-development-lifecycle-7e898f15","app-20260722-google-cloud-software-engineer-iii-agent-development-lifecycle-540a7fa6","app-20260722-lufinity-ai-senior-ai-software-engineer-446d4903","app-20260723-brillian-agentic-engineering-lead-6992c073","app-20260723-kapo-estonian-internal-security-service-ai-susteemide-arendaja-298ecfd4","app-20260723-ruby-labs-senior-ai-engineer-916bbf71","app-20260727-amboras-ai-engineer-76ae2366","app-20260727-freedom-consulting-inc-forward-deployment-engineer-ai-deployment-engineer-opportunities-f786c065","app-20260801-braintrust-open-source-engineer-python-66d0ccf5","app-20260801-vercel-software-engineer-ai-sdk-09589511","app-20260801-xop-ai-associate-ai-developer-5ba56a4d"]},"feedback":{"category_counts":{"communication_decision_clarity":2,"competition_no_specific_signal":18,"leadership_people_evidence":1,"logistics_work_authorization":3,"metric_rigor_provenance":1,"ml_genai_evaluation":1,"role_seniority_alignment":2,"technical_depth":1},"evidence_tier_counts":{"boilerplate":18,"explicit":5,"observed":6},"lineage":[{"application_ids":["app-20260713-zapier-engineer-applied-ai-69ab8b56"],"feedback_ids":["fb-363c064406e7550f9c3b11909a238e5670960ce56707edd2db67f0deecc85907"],"rule_id":"rule-023d26d7bf75ce3c0ef401893b12821ae08ea18ad215e32a8a1493b39bc1737f","status":"active"},{"application_ids":["app-20260705-cuspai-applied-ai-ml-engineer-agents-1d670804"],"feedback_ids":["fb-9a92ee4e18f04021d267206236bde6c72c1d2e1b54f79a77966e12e4433da357"],"rule_id":"rule-07854442ba6990ad3a415b90cef0c9f5c199a977767f6d97b68fce00e0a513e0","status":"active"},{"application_ids":["app-20260701-digital-workforce-senior-ai-agent-developer-0e880ccf"],"feedback_ids":["fb-09c05a81fc46da936df16e91572e95affeae70d74561f36d0bdf3f86523a4e8e"],"rule_id":"rule-2777ced10ad207d87a2414220c43fd4cc568697d055fd4a0a055fa7d4ee8f1c7","status":"active"},{"application_ids":["app-20260713-dust-solutions-engineer-c86a75b2"],"feedback_ids":["fb-123d18742bb87cfdaab30c8dab82059af947cfe9386e11fee822b041a08b2643"],"rule_id":"rule-43805087dff125e0e906c3ba0d6bea5290ec941a843ff07920b558575fc8359b","status":"active"},{"application_ids":["app-20260721-nordea-senior-data-scientist-ai-engineer-generative-ai-1878-16b2ad0e"],"feedback_ids":["fb-cc9dbb75a856298bfd513fce3d8b0bac2ee7c5a58df9f853137e004a17590ab4"],"rule_id":"rule-4fabe5fdd555c6389c12281335a40475568f4b4f4d32c53aea2b54ebe2840df7","status":"active"},{"application_ids":["app-20260723-wise-senior-engineering-lead-generative-ai-platform-9b39df55"],"feedback_ids":["fb-b77d7758086438745843eaf697bc5da0baf6ad93ec1257c099ac89abda339960"],"rule_id":"rule-50f22070c0ca6f56497379a3391b449efe9a5129ecc5c9afaca74fae7f4962e4","status":"active"},{"application_ids":["app-20260721-nordea-senior-data-scientist-ai-engineer-generative-ai-1878-16b2ad0e"],"feedback_ids":["fb-5dd6e8a16270be994c176879b59038ccf1ba1ad3eb3e52d38df1eadc851f0add"],"rule_id":"rule-7e6e6b7cebb6f56bd63cb5e9ec90ef76ae83c225d2fdfc54411c936ea2e340e9","status":"active"},{"application_ids":["app-20260723-wise-senior-engineering-lead-generative-ai-platform-9b39df55"],"feedback_ids":["fb-b4d8a7c6f0348780814976d6c545fd584468de528a6ec7873f4ea26be7f54135"],"rule_id":"rule-b23acecdb36f7fc66bc8216e9431325534729a9d5df59973c35d59a34cbb5b13","status":"active"},{"application_ids":["app-20260710-dragonfly-askdragonfly-com-senior-ai-engineer-58662bcc"],"feedback_ids":["fb-31165d2b7f28a71dfd360048479828693b5e757016a1419c71fbb27b648afd7e"],"rule_id":"rule-b3410de5d54180bc1404831a093492426e9cc8700fa62819f1ee7cecf9eaf364","status":"active"},{"application_ids":["app-20260710-dragonfly-askdragonfly-com-senior-ai-engineer-58662bcc"],"feedback_ids":["fb-0ef73f69650bd261a91f55edec606b414a7d21c9e7459f0bc66397b5e2b713c0"],"rule_id":"rule-d9683510dbbffd80bf97eb709965dd264723aaa342c0abe667610c765f0de513","status":"active"},{"application_ids":["app-20260719-lobby-founding-engineer-applied-ai-systems-f98a6832"],"feedback_ids":["fb-bc72f87dc992f5c2ac31f4b2c99df1afa4397a63740e380e9051ff8b498e8315"],"rule_id":"rule-ea59d72bfdf9e8813f90ef758aee408f0d0fe975a465ab6f4a553a915226c1a5","status":"active"}],"rule_status_counts":{"active":11,"monitor":0,"resolved":0}},"filters":{"channel":["Ashby","Ashby + direct outreach","Ashby / Camunda careers","Ashby / Eigen Labs careers","Ashby / HiPeople careers","Ashby / Luma Careers","Ashby / RobCo careers","Bolt careers page","Braintrust careers / Ashby","Company Google Form","Company careers form","Company careers page","Direct (founder outreach)","Direct careers page","Direct email","Direct email / Google Calendar","Email / R8 Technologies careers","Google Careers","Greenhouse","Greenhouse / Carta careers","Greenhouse / Databricks careers","Greenhouse / DoiT careers","Gusto","Helsing careers / LinkedIn","Jack & Jill","JazzHR / Sky Spy careers","Join.com","Legora careers","Lever","LinkedIn","LinkedIn / Jack & Jill","LinkedIn / NUS careers","LinkedIn / Nordea careers","LinkedIn / Oho Group","LinkedIn / recruiter","LinkedIn Gmail alert","LinkedIn InMail","LinkedIn InMail + Calendly + direct email","LinkedIn post / Google Careers","Microsoft Forms","Ponty/Safemind","Teamtailor","Teamtailor / CVKeskus","Teamtailor / ESTO careers","Vercel careers","Wise jobs / LinkedIn","Workable","Y Combinator","gohiring"],"date_range":{"end":"2026-08-24","start":"2026-07-01"},"evidence_tier":["boilerplate","explicit","observed"],"feedback_category":["communication_decision_clarity","competition_no_specific_signal","leadership_people_evidence","logistics_work_authorization","metric_rigor_provenance","ml_genai_evaluation","role_seniority_alignment","technical_depth"],"fit_band":["0-59","60-69","70-79","80-89","90-100","missing"],"geography":["unknown"],"logistics_status":["unknown"],"role_family":["ai_platform","ai_security","applied_ai","forward_deployed","other"],"seniority":["unknown"],"stage":["closed","interview","prospect","qualified","submitted"]},"funnel":{"discovered":99,"interviewed":4,"offered":0,"qualified":0,"responded":26,"screened":0,"submitted":72},"meta":{"data_range":{"end":"2026-08-24","start":"2026-07-01"},"generated_at":"2026-08-24T00:00:00Z","record_counts":{"application_rows":99,"applications":99,"event_rows":245,"events":245,"feedback":29,"feedback_rows":29,"review_items":0,"rules":11},"reporting_timezone":"Europe/Tallinn","warnings":["lifecycle_coverage","missing_scores","stale_rows"]},"pipeline":[{"age_days":30,"application_date":"2026-07-01","application_id":"app-20260701-digital-workforce-senior-ai-agent-developer-0e880ccf","channel":"Teamtailor","company":"Digital Workforce","feedback_evidence_tier":"observed","fit_band":"80-89","fit_score":82.0,"geography":"unknown","latest_feedback_signal":"The Helsinki employment constraint required a concrete Tallinn B2B delivery model.","logistics_status":"unknown","next_action":"Prepare for interview","role":"Senior AI Agent Developer","role_family":"applied_ai","seniority":"unknown","source":"https://www.digitalworkforce.com/careers","stage":"interview","status":"INTRO CALL DONE - RATE SENT 2026-07-25 - NO REPLY (11 days)"},{"age_days":53,"application_date":"2026-07-02","application_id":"app-20260702-jobgether-ai-engineer-remote-international-a35902ca","channel":"LinkedIn","company":"Jobgether","feedback_evidence_tier":"","fit_band":"missing","fit_score":null,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"AI Engineer (Remote, International)","role_family":"applied_ai","seniority":"unknown","source":"https://www.linkedin.com/jobs/view/4433673265","stage":"submitted","status":"SUBMITTED 2026-07-02"},{"age_days":53,"application_date":null,"application_id":"app-20260702-turing-remote-software-engineer-fa442f34","channel":"LinkedIn","company":"Turing","feedback_evidence_tier":"","fit_band":"missing","fit_score":null,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Screen opportunity","role":"Remote Software Engineer","role_family":"other","seniority":"unknown","source":"https://www.linkedin.com/jobs/view/4435179300","stage":"prospect","status":"ACTION REQUIRED - UPDATE AVAILABILITY 2026-08-04"},{"age_days":50,"application_date":"2026-07-05","application_id":"app-20260705-alpha-signal-llc-backend-engineer-9bd49c01","channel":"Gusto","company":"Alpha Signal LLC","feedback_evidence_tier":"","fit_band":"80-89","fit_score":82.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Backend Engineer","role_family":"other","seniority":"unknown","source":"https://jobs.gusto.com/postings/alpha-signal-llc-backend-engineer-f9f9da28-334f-4637-8c80-5d2504577663","stage":"submitted","status":"SUBMITTED 2026-07-05"},{"age_days":50,"application_date":"2026-07-05","application_id":"app-20260705-auxilius-ai-ai-engineer-llmops-evaluation-7c1a6adb","channel":"Join.com","company":"Auxilius.ai","feedback_evidence_tier":"","fit_band":"80-89","fit_score":84.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"AI Engineer (LLMOps & Evaluation)","role_family":"applied_ai","seniority":"unknown","source":"https://join.com/companies/auxiliusai/16344221-ai-engineer-for-llm-ops-and-evaluation-m-f-d","stage":"submitted","status":"SUBMITTED 2026-07-05"},{"age_days":50,"application_date":null,"application_id":"app-20260705-clera-founding-engineer-3m-pre-seed-c2d8abf7","channel":"LinkedIn","company":"Clera","feedback_evidence_tier":"","fit_band":"0-59","fit_score":40.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Screen opportunity","role":"Founding Engineer ($3M pre-seed)","role_family":"other","seniority":"unknown","source":"https://www.linkedin.com/jobs/view/4435820129","stage":"prospect","status":"SKIP (location)"},{"age_days":47,"application_date":"2026-07-05","application_id":"app-20260705-cuspai-applied-ai-ml-engineer-agents-1d670804","channel":"Ashby","company":"CuspAI","feedback_evidence_tier":"explicit","fit_band":"60-69","fit_score":63.0,"geography":"unknown","latest_feedback_signal":"Regular office attendance was required and fully remote work was unavailable.","logistics_status":"unknown","next_action":"None","role":"Applied AI/ML Engineer (Agents)","role_family":"applied_ai","seniority":"unknown","source":"https://jobs.ashbyhq.com/cuspai/916e1489-6624-4a87-90e6-218dc7ebb6fb","stage":"closed","status":"REJECTED 2026-07-08"},{"age_days":50,"application_date":null,"application_id":"app-20260705-elevenlabs-enterprise-solutions-engineer-netherlands-fb216ad2","channel":"Ashby","company":"ElevenLabs","feedback_evidence_tier":"","fit_band":"missing","fit_score":null,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Draft application","role":"Enterprise Solutions Engineer - Netherlands","role_family":"other","seniority":"unknown","source":"https://jobs.ashbyhq.com/elevenlabs/3f10ccc9-56a9-40bf-b5f1-33ab5834ff4a","stage":"qualified","status":"QUEUED (tailor next)"},{"age_days":50,"application_date":"2026-07-05","application_id":"app-20260705-elevenlabs-forward-deployed-engineer-software-engineer-spain-d8cbb347","channel":"Ashby","company":"ElevenLabs","feedback_evidence_tier":"","fit_band":"70-79","fit_score":74.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Forward Deployed Engineer - Software Engineer - Spain","role_family":"forward_deployed","seniority":"unknown","source":"https://jobs.ashbyhq.com/elevenlabs/7664e3c4-2336-4d1a-90cf-91d1268de10d/application","stage":"submitted","status":"SUBMITTED 2026-07-05"},{"age_days":50,"application_date":null,"application_id":"app-20260705-flutter-uk-ireland-ai-security-engineer-b0e5617c","channel":"LinkedIn","company":"Flutter UK & Ireland","feedback_evidence_tier":"","fit_band":"70-79","fit_score":74.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Screen opportunity","role":"AI Security Engineer","role_family":"ai_security","seniority":"unknown","source":"https://www.linkedin.com/jobs/view/4416587303","stage":"prospect","status":"HOLD (needs UK sponsorship)"},{"age_days":49,"application_date":"2026-07-05","application_id":"app-20260705-kraken-payward-senior-software-engineer-frontend-pro-6eda25ba","channel":"Ashby","company":"Kraken (Payward)","feedback_evidence_tier":"","fit_band":"80-89","fit_score":80.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Senior Software Engineer - Frontend - Pro","role_family":"other","seniority":"unknown","source":"https://jobs.ashbyhq.com/kraken.com/aa04e385-a718-4630-ba2a-815ff2483ac8/application","stage":"submitted","status":"CONFIRMED IN REVIEW 2026-07-06"},{"age_days":38,"application_date":"2026-07-05","application_id":"app-20260705-langfuse-clickhouse-senior-software-engineer-sdk-75382ded","channel":"Ashby","company":"Langfuse (ClickHouse)","feedback_evidence_tier":"boilerplate","fit_band":"80-89","fit_score":80.0,"geography":"unknown","latest_feedback_signal":"The rejection contained no candidate-specific actionable signal.","logistics_status":"unknown","next_action":"None","role":"Senior Software Engineer (SDK)","role_family":"ai_platform","seniority":"unknown","source":"https://jobs.ashbyhq.com/langfuse/891eda0a-a9f6-45e6-8750-71874db8cc11","stage":"closed","status":"REJECTED 2026-07-17"},{"age_days":50,"application_date":null,"application_id":"app-20260705-mercor-ml-engineer-model-eval-up-to-85-hr-3b95cbe2","channel":"LinkedIn","company":"Mercor","feedback_evidence_tier":"","fit_band":"60-69","fit_score":68.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Screen opportunity","role":"ML Engineer (model-eval, up to $85/hr)","role_family":"other","seniority":"unknown","source":"https://work.mercor.com/jobs/list_AAABnJzIt-SOsdwOeF5Ebarf/machine-learning-engineer-talent-network?utm_source=mercor_site&utm_medium=direct&utm_campaign=platform","stage":"prospect","status":"MANUAL APPLY - MERCOR LOGIN REQUIRED"},{"age_days":50,"application_date":"2026-07-05","application_id":"app-20260705-mistral-ai-ai-deployment-strategist-cybersecurity-emea-ceabbe7f","channel":"Lever","company":"Mistral AI","feedback_evidence_tier":"","fit_band":"80-89","fit_score":82.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"AI Deployment Strategist, Cybersecurity - EMEA","role_family":"forward_deployed","seniority":"unknown","source":"https://jobs.lever.co/mistral/d9f2767e-cdab-4e07-9944-20bbc468613d","stage":"submitted","status":"SUBMITTED 2026-07-05"},{"age_days":50,"application_date":null,"application_id":"app-20260705-mistral-ai-applied-ai-engineer-cybersecurity-2ea2bbb2","channel":"Lever","company":"Mistral AI","feedback_evidence_tier":"","fit_band":"80-89","fit_score":82.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Screen opportunity","role":"Applied AI Engineer, CyberSecurity","role_family":"ai_security","seniority":"unknown","source":"https://jobs.lever.co/mistral/98e6a2ea-7049-4c8d-88b7-c9d824eea6f1","stage":"prospect","status":"HOLD (Mistral backup)"},{"age_days":50,"application_date":"2026-07-05","application_id":"app-20260705-mistral-ai-applied-ai-evaluation-engineer-e826f027","channel":"Lever","company":"Mistral AI","feedback_evidence_tier":"","fit_band":"80-89","fit_score":85.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Applied AI, Evaluation Engineer","role_family":"applied_ai","seniority":"unknown","source":"https://jobs.lever.co/mistral/e0db3860-0a80-47a8-958a-f8e62f3bb59c","stage":"submitted","status":"SUBMITTED 2026-07-05"},{"age_days":50,"application_date":null,"application_id":"app-20260705-mistral-ai-applied-ai-forward-deployed-ml-engineer-emea-65783db9","channel":"Lever","company":"Mistral AI","feedback_evidence_tier":"","fit_band":"80-89","fit_score":80.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Screen opportunity","role":"Applied AI, Forward Deployed ML Engineer - EMEA","role_family":"forward_deployed","seniority":"unknown","source":"https://jobs.lever.co/mistral/77f6fd1b-65cf-45d8-9b68-594c62732f62","stage":"prospect","status":"HOLD (Mistral backup)"},{"age_days":50,"application_date":"2026-07-05","application_id":"app-20260705-traide-ai-ai-engineer-7668a6b8","channel":"gohiring","company":"traide AI","feedback_evidence_tier":"","fit_band":"80-89","fit_score":80.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"AI Engineer","role_family":"applied_ai","seniority":"unknown","source":"https://t.gohiring.com/h/676c45f586b4bf130143d5acb4adf52298808dc7ffc48c257c623e75b77f5bf1","stage":"submitted","status":"SUBMITTED 2026-07-05"},{"age_days":48,"application_date":"2026-07-07","application_id":"app-20260707-monogram-software-engineer-ai-interfaces-8f6ad17e","channel":"Direct (founder outreach)","company":"Monogram","feedback_evidence_tier":"","fit_band":"missing","fit_score":null,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Software Engineer - AI Interfaces","role_family":"other","seniority":"unknown","source":"https://www.monogram.ai/hiring","stage":"submitted","status":"OUTREACH - READY TO SEND"},{"age_days":47,"application_date":"2026-07-08","application_id":"app-20260708-european-chatbot-agentic-ai-summit-speaker-proposal-production-agentic-ai-117a6b0c","channel":"Microsoft Forms","company":"European Chatbot & Agentic AI Summit","feedback_evidence_tier":"","fit_band":"80-89","fit_score":88.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Speaker Proposal - Production Agentic AI","role_family":"applied_ai","seniority":"unknown","source":"https://theeuropeanchatbot.com/call-for-speakers/","stage":"submitted","status":"SUBMITTED 2026-07-08"},{"age_days":47,"application_date":"2026-07-08","application_id":"app-20260708-general-intelligence-company-applied-ai-engineer-agent-9a2ed1f0","channel":"Ashby + direct outreach","company":"General Intelligence Company","feedback_evidence_tier":"","fit_band":"80-89","fit_score":88.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Applied AI Engineer - Agent","role_family":"applied_ai","seniority":"unknown","source":"https://jobs.ashbyhq.com/generalintelligencecompany/4bc5d479-3bba-432d-887f-423847aa650a","stage":"submitted","status":"OUTREACH SENT 2026-07-08"},{"age_days":42,"application_date":"2026-07-13","application_id":"app-20260709-anaplan-senior-security-architect-product-security-028b225b","channel":"Greenhouse","company":"Anaplan","feedback_evidence_tier":"","fit_band":"70-79","fit_score":76.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Senior Security Architect (Product Security)","role_family":"ai_security","seniority":"unknown","source":"https://job-boards.greenhouse.io/anaplan/jobs/8611274002","stage":"submitted","status":"SUBMITTED 2026-07-13"},{"age_days":33,"application_date":"2026-07-09","application_id":"app-20260709-openai-ai-deployment-engineer-startups-45c10525","channel":"Ashby","company":"OpenAI","feedback_evidence_tier":"boilerplate","fit_band":"80-89","fit_score":86.0,"geography":"unknown","latest_feedback_signal":"The rejection contained no candidate-specific actionable signal.","logistics_status":"unknown","next_action":"None","role":"AI Deployment Engineer - Startups","role_family":"forward_deployed","seniority":"unknown","source":"https://jobs.ashbyhq.com/openai/b76848b3-d545-40cc-b8b4-585501f09760/application","stage":"closed","status":"REJECTED 2026-07-22"},{"age_days":34,"application_date":"2026-07-10","application_id":"app-20260710-dragonfly-askdragonfly-com-senior-ai-engineer-58662bcc","channel":"Direct email / Google Calendar","company":"Dragonfly (askdragonfly.com)","feedback_evidence_tier":"observed","fit_band":"missing","fit_score":null,"geography":"unknown","latest_feedback_signal":"A trade-off answer enumerated options without making and defending a choice.","logistics_status":"unknown","next_action":"None","role":"Senior AI Engineer","role_family":"applied_ai","seniority":"unknown","source":"","stage":"closed","status":"REJECTED 2026-07-21 - FEEDBACK REQUEST UNANSWERED"},{"age_days":39,"application_date":"2026-07-16","application_id":"app-20260713-coinspaid-ai-platform-engineer-5d88899e","channel":"Lever","company":"CoinsPaid","feedback_evidence_tier":"","fit_band":"80-89","fit_score":81.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"AI Platform Engineer","role_family":"ai_platform","seniority":"unknown","source":"https://jobs.eu.lever.co/coinspaid/02ff3024-4a69-435c-805c-6fdcf5e52356/apply","stage":"submitted","status":"SUBMITTED 2026-07-16"},{"age_days":35,"application_date":"2026-07-13","application_id":"app-20260713-dust-solutions-engineer-c86a75b2","channel":"Ashby","company":"Dust","feedback_evidence_tier":"explicit","fit_band":"70-79","fit_score":78.0,"geography":"unknown","latest_feedback_signal":"The selected candidates had experience closer to the Solutions Engineer role.","logistics_status":"unknown","next_action":"None","role":"Solutions Engineer","role_family":"other","seniority":"unknown","source":"https://jobs.ashbyhq.com/dust/54d23ce3-f59f-447f-87a4-4549a6a8074f","stage":"closed","status":"REJECTED 2026-07-20"},{"age_days":42,"application_date":null,"application_id":"app-20260713-elevenlabs-enterprise-solutions-engineer-europe-3b601e78","channel":"Ashby","company":"ElevenLabs","feedback_evidence_tier":"","fit_band":"80-89","fit_score":84.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Screen opportunity","role":"Enterprise Solutions Engineer - Europe","role_family":"other","seniority":"unknown","source":"https://jobs.ashbyhq.com/elevenlabs/4509df6f-b839-44d6-b31f-d7f364cec949","stage":"prospect","status":"MANUAL APPLY - ASHBY SPAM BLOCKED"},{"age_days":42,"application_date":null,"application_id":"app-20260713-perplexity-member-of-technical-staff-software-engineer-data-flywheel-dc5f6da0","channel":"Ashby","company":"Perplexity","feedback_evidence_tier":"","fit_band":"80-89","fit_score":80.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Screen opportunity","role":"Member of Technical Staff (Software Engineer, Data Flywheel)","role_family":"other","seniority":"unknown","source":"https://jobs.ashbyhq.com/perplexity/7755eb0a-0f51-4286-b75e-591e44c741bc/application","stage":"prospect","status":"MANUAL APPLY - ASHBY SPAM BLOCKED"},{"age_days":39,"application_date":"2026-07-16","application_id":"app-20260713-stackblitz-bolt-new-senior-applied-ai-engineer-48ec8f83","channel":"Greenhouse","company":"StackBlitz / Bolt.new","feedback_evidence_tier":"","fit_band":"80-89","fit_score":84.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Senior Applied AI Engineer","role_family":"applied_ai","seniority":"unknown","source":"https://job-boards.greenhouse.io/stackblitz/jobs/4005254009","stage":"submitted","status":"SUBMITTED 2026-07-16"},{"age_days":38,"application_date":"2026-07-13","application_id":"app-20260713-starbridge-ai-engineer-emea-latam-b3677060","channel":"Ashby","company":"Starbridge","feedback_evidence_tier":"boilerplate","fit_band":"80-89","fit_score":83.0,"geography":"unknown","latest_feedback_signal":"The rejection contained no candidate-specific actionable signal.","logistics_status":"unknown","next_action":"None","role":"AI Engineer - EMEA/LATAM","role_family":"applied_ai","seniority":"unknown","source":"https://jobs.ashbyhq.com/starbridge/80ee1fbc-2de4-4c9a-b62a-be5ae89b0c37","stage":"closed","status":"REJECTED 2026-07-17"},{"age_days":40,"application_date":"2026-07-15","application_id":"app-20260713-vertus-data-engineer-full-stack-developer-432e77dd","channel":"LinkedIn","company":"Vertus","feedback_evidence_tier":"","fit_band":"70-79","fit_score":77.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Data Engineer / Full-Stack Developer","role_family":"other","seniority":"unknown","source":"https://www.linkedin.com/jobs/view/4440963373/","stage":"submitted","status":"SUBMITTED 2026-07-15"},{"age_days":35,"application_date":"2026-07-13","application_id":"app-20260713-zapier-engineer-applied-ai-69ab8b56","channel":"Ashby","company":"Zapier","feedback_evidence_tier":"explicit","fit_band":"80-89","fit_score":82.0,"geography":"unknown","latest_feedback_signal":"Country-of-residence work eligibility was required without visa sponsorship.","logistics_status":"unknown","next_action":"None","role":"Engineer, Applied AI","role_family":"applied_ai","seniority":"unknown","source":"https://jobs.ashbyhq.com/zapier/38434b88-086c-424b-8d18-8d006e0b71b8/application?employmentType=FullTime","stage":"closed","status":"REJECTED 2026-07-20"},{"age_days":38,"application_date":null,"application_id":"app-20260717-elevenlabs-infrastructure-security-engineer-badbef83","channel":"Ashby","company":"ElevenLabs","feedback_evidence_tier":"","fit_band":"70-79","fit_score":72.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Screen opportunity","role":"Infrastructure Security Engineer","role_family":"ai_security","seniority":"unknown","source":"https://jobs.ashbyhq.com/elevenlabs/687394d7-fbf8-49ed-822e-c0690191330c","stage":"prospect","status":"MANUAL APPLY - ASHBY SPAM BLOCKED"},{"age_days":38,"application_date":"2026-07-17","application_id":"app-20260717-openai-forward-deployed-engineer-stockholm-31754761","channel":"Ashby","company":"OpenAI","feedback_evidence_tier":"","fit_band":"80-89","fit_score":82.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Forward Deployed Engineer - Stockholm","role_family":"forward_deployed","seniority":"unknown","source":"https://jobs.ashbyhq.com/openai/580f9e7e-20cc-429c-877a-0b5f5233abdd/application","stage":"submitted","status":"SUBMITTED 2026-07-17"},{"age_days":38,"application_date":"2026-07-17","application_id":"app-20260717-poolside-member-of-security-corporate-technology-6f281462","channel":"Ashby","company":"Poolside","feedback_evidence_tier":"","fit_band":"70-79","fit_score":70.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Member of Security (Corporate Technology)","role_family":"ai_security","seniority":"unknown","source":"https://jobs.ashbyhq.com/poolside/97536454-0ca9-40b9-8b68-3d63a040286c","stage":"submitted","status":"SUBMITTED 2026-07-17"},{"age_days":37,"application_date":"2026-07-18","application_id":"app-20260718-xfigura-full-stack-engineer-c73a080e","channel":"Direct email","company":"xFigura","feedback_evidence_tier":"","fit_band":"80-89","fit_score":84.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Full Stack Engineer","role_family":"other","seniority":"unknown","source":"https://xfiguracareers.notion.site/Full-Stack-Engineer-3085132adffa81768ba6c58ec222f44a","stage":"submitted","status":"SUBMITTED 2026-07-18"},{"age_days":36,"application_date":null,"application_id":"app-20260719-adria-solutions-ltd-founding-ai-engineer-31655ffb","channel":"LinkedIn / recruiter","company":"Adria Solutions Ltd","feedback_evidence_tier":"","fit_band":"80-89","fit_score":86.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Screen opportunity","role":"Founding AI Engineer","role_family":"applied_ai","seniority":"unknown","source":"https://uk.linkedin.com/jobs/view/founding-ai-engineer-at-adria-solutions-ltd-4432615083","stage":"prospect","status":"MANUAL APPLY - LINKEDIN SIGN-IN REQUIRED"},{"age_days":7,"application_date":"2026-07-19","application_id":"app-20260719-aion-senior-forward-deployed-ml-engineer-agents-bd380c56","channel":"Workable","company":"AION","feedback_evidence_tier":"","fit_band":"90-100","fit_score":100.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Senior Forward Deployed ML Engineer, Agents","role_family":"forward_deployed","seniority":"unknown","source":"https://apply.workable.com/aion/j/84A29655B1/apply/","stage":"submitted","status":"SUBMITTED - CONFIRMED ON PAGE 2026-08-17"},{"age_days":36,"application_date":null,"application_id":"app-20260719-baseten-forward-deployed-engineer-edb3041c","channel":"Ashby","company":"Baseten","feedback_evidence_tier":"","fit_band":"80-89","fit_score":86.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Screen opportunity","role":"Forward Deployed Engineer","role_family":"forward_deployed","seniority":"unknown","source":"https://jobs.ashbyhq.com/baseten/84c1801c-1a65-49fb-aaaa-beeafd530e7e","stage":"prospect","status":"LOW PRIORITY - NOT APPLIED"},{"age_days":36,"application_date":"2026-07-19","application_id":"app-20260719-cohere-forward-deployed-engineer-agentic-platform-uk-europe-c16a3a30","channel":"Ashby","company":"Cohere","feedback_evidence_tier":"","fit_band":"80-89","fit_score":86.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Forward Deployed Engineer, Agentic Platform (UK/Europe)","role_family":"forward_deployed","seniority":"unknown","source":"https://jobs.ashbyhq.com/cohere/2d256112-b336-4539-8133-a0bf7f6698f0","stage":"submitted","status":"SUBMITTED 2026-07-19"},{"age_days":36,"application_date":null,"application_id":"app-20260719-combinely-founding-ai-engineer-uk-81406fe7","channel":"Y Combinator","company":"Combinely","feedback_evidence_tier":"","fit_band":"80-89","fit_score":86.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Screen opportunity","role":"Founding AI Engineer (UK)","role_family":"applied_ai","seniority":"unknown","source":"https://www.ycombinator.com/companies/combinely/jobs/xzHRzLw-founding-ai-engineer-uk","stage":"prospect","status":"MANUAL APPLY - YC ACCOUNT REQUIRED"},{"age_days":36,"application_date":null,"application_id":"app-20260719-enjins-forward-deployed-ai-engineer-0fef658d","channel":"Workable","company":"Enjins","feedback_evidence_tier":"","fit_band":"80-89","fit_score":82.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Screen opportunity","role":"Forward Deployed AI Engineer","role_family":"forward_deployed","seniority":"unknown","source":"https://apply.workable.com/enjins/j/BD324C70EC/","stage":"prospect","status":"LOW PRIORITY - NOT APPLIED"},{"age_days":24,"application_date":"2026-07-19","application_id":"app-20260719-happyrobot-forward-deployed-engineer-singapore-1df60a48","channel":"Ashby","company":"HappyRobot","feedback_evidence_tier":"boilerplate","fit_band":"80-89","fit_score":86.0,"geography":"unknown","latest_feedback_signal":"The rejection contained no candidate-specific actionable signal.","logistics_status":"unknown","next_action":"None","role":"Forward Deployed Engineer - Singapore","role_family":"forward_deployed","seniority":"unknown","source":"https://jobs.ashbyhq.com/happyrobot.ai/138134f5-5f42-4e51-9b8d-b832454fc2b7/application","stage":"closed","status":"REJECTED 2026-07-31"},{"age_days":36,"application_date":"2026-07-19","application_id":"app-20260719-keyrus-group-forward-deployed-ai-engineer-81af828f","channel":"Teamtailor","company":"Keyrus Group","feedback_evidence_tier":"","fit_band":"90-100","fit_score":92.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Forward Deployed AI Engineer","role_family":"forward_deployed","seniority":"unknown","source":"https://jobs.keyrus.com/jobs/8089589-forward-deployed-ai-engineer/applications/new","stage":"submitted","status":"SUBMITTED 2026-07-19"},{"age_days":36,"application_date":"2026-07-19","application_id":"app-20260719-klar-partners-safemind-forward-deployed-ai-engineer-catalyst-team-b6f6c20e","channel":"Ponty/Safemind","company":"KLAR Partners / Safemind","feedback_evidence_tier":"","fit_band":"80-89","fit_score":88.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Forward Deployed AI Engineer - Catalyst Team","role_family":"forward_deployed","seniority":"unknown","source":"https://www.safemind.se/lediga-jobb/2866-forward-deployed-ai-engineer-catalyst-team/","stage":"submitted","status":"SUBMITTED 2026-07-19"},{"age_days":36,"application_date":"2026-07-19","application_id":"app-20260719-kyber-founding-engineer-2e1ede4f","channel":"Direct email","company":"Kyber","feedback_evidence_tier":"","fit_band":"70-79","fit_score":76.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Founding Engineer","role_family":"other","seniority":"unknown","source":"https://joinkyber.com/careers","stage":"submitted","status":"SUBMITTED 2026-07-19"},{"age_days":35,"application_date":"2026-07-19","application_id":"app-20260719-lobby-founding-engineer-applied-ai-systems-f98a6832","channel":"Direct email","company":"Lobby","feedback_evidence_tier":"explicit","fit_band":"90-100","fit_score":94.0,"geography":"unknown","latest_feedback_signal":"The profile did not exactly match the founding applied-AI role.","logistics_status":"unknown","next_action":"None","role":"Founding Engineer [Applied AI & Systems]","role_family":"applied_ai","seniority":"unknown","source":"https://joinup.ch/job/founding-engineer-applied-ai-systems]-bd8ef63b-de6f-46ae-922c-598c9f9e1cc3-10121","stage":"closed","status":"REJECTED 2026-07-20"},{"age_days":7,"application_date":"2026-07-19","application_id":"app-20260719-luma-ai-forward-deployed-engineer-eu-f38012b2","channel":"Ashby / Luma Careers","company":"Luma AI","feedback_evidence_tier":"","fit_band":"90-100","fit_score":96.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Forward Deployed Engineer (EU)","role_family":"forward_deployed","seniority":"unknown","source":"https://jobs.ashbyhq.com/lumaai/4c842e7b-c07b-4d48-b677-2aa68b489852/application","stage":"submitted","status":"SUBMITTED - CONFIRMED ON PAGE 2026-08-17"},{"age_days":36,"application_date":null,"application_id":"app-20260719-national-university-of-singapore-ai-engineer-ai-agents-and-platform-integration-b0195556","channel":"LinkedIn / NUS careers","company":"National University of Singapore","feedback_evidence_tier":"","fit_band":"80-89","fit_score":86.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Screen opportunity","role":"AI Engineer, AI Agents and Platform Integration","role_family":"ai_platform","seniority":"unknown","source":"https://sg.linkedin.com/jobs/view/ai-engineer-ai-agents-and-platform-integration-at-national-university-of-singapore-4439828035","stage":"prospect","status":"LOW PRIORITY - NOT APPLIED"},{"age_days":36,"application_date":null,"application_id":"app-20260719-oho-group-founding-ai-engineer-early-stage-ai-start-up-london-2f8c28fa","channel":"LinkedIn / Oho Group","company":"Oho Group","feedback_evidence_tier":"","fit_band":"80-89","fit_score":86.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Screen opportunity","role":"Founding AI Engineer | Early Stage AI Start-Up | London","role_family":"applied_ai","seniority":"unknown","source":"https://uk.linkedin.com/jobs/view/founding-ai-engineer-early-stage-ai-start-up-london-at-oho-group-4441328102","stage":"prospect","status":"MANUAL APPLY - LINKEDIN SIGN-IN REQUIRED"},{"age_days":36,"application_date":null,"application_id":"app-20260719-openhuman-jack-jill-founding-ai-engineer-equity-00d68851","channel":"LinkedIn / Jack & Jill","company":"OpenHuman / Jack & Jill","feedback_evidence_tier":"","fit_band":"80-89","fit_score":86.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Screen opportunity","role":"Founding AI Engineer (+ Equity)","role_family":"applied_ai","seniority":"unknown","source":"https://uk.linkedin.com/jobs/view/founding-ai-engineer-%2B-equity-at-openhuman-at-jack-jill-4441775405","stage":"prospect","status":"MANUAL APPLY - JACK CALL REQUIRED"},{"age_days":33,"application_date":"2026-07-19","application_id":"app-20260719-remote-senior-forward-deployed-engineer-remote-build-416d8f3e","channel":"Greenhouse","company":"Remote","feedback_evidence_tier":"boilerplate","fit_band":"90-100","fit_score":90.0,"geography":"unknown","latest_feedback_signal":"The rejection contained no candidate-specific actionable signal.","logistics_status":"unknown","next_action":"None","role":"Senior Forward Deployed Engineer (Remote Build)","role_family":"forward_deployed","seniority":"unknown","source":"https://job-boards.greenhouse.io/remotecom/jobs/7774935003","stage":"closed","status":"REJECTED 2026-07-22"},{"age_days":36,"application_date":"2026-07-19","application_id":"app-20260719-sable-product-engineer-d661534a","channel":"Ashby","company":"Sable","feedback_evidence_tier":"","fit_band":"90-100","fit_score":92.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Product Engineer","role_family":"other","seniority":"unknown","source":"https://jobs.ashbyhq.com/sable/8725ab5e-473d-491d-b43a-60cb01bdc6f9/application","stage":"submitted","status":"SUBMITTED 2026-07-19"},{"age_days":36,"application_date":null,"application_id":"app-20260719-stackfix-founding-applied-ai-engineer-aee63dcf","channel":"Jack & Jill","company":"Stackfix","feedback_evidence_tier":"","fit_band":"80-89","fit_score":88.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"None","role":"Founding Applied AI Engineer","role_family":"applied_ai","seniority":"unknown","source":"https://www.jackandjill.ai/jobs/engineer/founding-applied-ai-engineer-100k-120k-equity-at-stackfix-bc65a6a3-5574-4de4-bfab-8fecbf5cb247","stage":"closed","status":"CLOSED - NO LONGER HIRING"},{"age_days":3,"application_date":"2026-07-19","application_id":"app-20260719-taktile-senior-forward-deployed-engineer-b405ff5e","channel":"Ashby","company":"Taktile","feedback_evidence_tier":"boilerplate","fit_band":"80-89","fit_score":89.0,"geography":"unknown","latest_feedback_signal":"The rejection contained no candidate-specific actionable signal.","logistics_status":"unknown","next_action":"None","role":"Senior Forward Deployed Engineer","role_family":"forward_deployed","seniority":"unknown","source":"https://jobs.ashbyhq.com/taktile/4c2c4d14-0fc2-46d8-8cf2-1279d1a6caf6/application","stage":"closed","status":"REJECTED 2026-08-21"},{"age_days":36,"application_date":null,"application_id":"app-20260719-unknown-unknown-greenhouse-job-id-7759694-493cc408","channel":"Greenhouse","company":"Unknown","feedback_evidence_tier":"","fit_band":"missing","fit_score":null,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Screen opportunity","role":"Unknown Greenhouse job ID 7759694","role_family":"other","seniority":"unknown","source":"https://greenhouse.io/jobs/7759694","stage":"prospect","status":"UNRESOLVABLE - COMPANY SLUG REQUIRED"},{"age_days":35,"application_date":"2026-07-20","application_id":"app-20260720-eqt-group-application-ai-cyber-security-engineer-eef4ec0f","channel":"Greenhouse","company":"EQT Group","feedback_evidence_tier":"","fit_band":"80-89","fit_score":82.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Application & AI Cyber Security Engineer","role_family":"ai_security","seniority":"unknown","source":"https://job-boards.eu.greenhouse.io/eqtpartners/jobs/4917831101","stage":"submitted","status":"SUBMITTED 2026-07-20"},{"age_days":35,"application_date":"2026-07-20","application_id":"app-20260720-grasp-ai-engineer-f77f9382","channel":"Teamtailor","company":"Grasp","feedback_evidence_tier":"","fit_band":"90-100","fit_score":90.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"AI Engineer","role_family":"applied_ai","seniority":"unknown","source":"https://careers.grasp-ai.com/jobs/4477489-ai-engineer/applications/new","stage":"submitted","status":"SUBMITTED 2026-07-20"},{"age_days":32,"application_date":"2026-07-20","application_id":"app-20260720-hcltech-ai-platform-engineer-devops-specialist-ba384d03","channel":"LinkedIn","company":"HCLTech","feedback_evidence_tier":"","fit_band":"missing","fit_score":null,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"AI Platform Engineer / DevOps Specialist","role_family":"ai_platform","seniority":"unknown","source":"https://www.linkedin.com/jobs/view/4440178186","stage":"submitted","status":"SUBMITTED 2026-07-20 - VIEWED 2026-07-23"},{"age_days":35,"application_date":null,"application_id":"app-20260720-legora-full-stack-engineer-fde-style-legal-ai-systems-d26ad368","channel":"Legora careers","company":"Legora","feedback_evidence_tier":"","fit_band":"80-89","fit_score":86.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Screen opportunity","role":"Full-Stack Engineer / FDE-style legal AI systems","role_family":"other","seniority":"unknown","source":"https://careers.legora.com/jobs/5921389-full-stack-engineer","stage":"prospect","status":"MANUAL APPLY - CAREERS URL UNRESOLVED"},{"age_days":30,"application_date":"2026-07-20","application_id":"app-20260720-lovable-software-engineer-security-ai-code-781afa51","channel":"Ashby","company":"Lovable","feedback_evidence_tier":"boilerplate","fit_band":"80-89","fit_score":84.0,"geography":"unknown","latest_feedback_signal":"The rejection contained no candidate-specific actionable signal.","logistics_status":"unknown","next_action":"None","role":"Software Engineer, Security (AI Code)","role_family":"ai_security","seniority":"unknown","source":"https://jobs.ashbyhq.com/lovable/e27e931e-79f3-483a-b543-57e42633ac5c/application","stage":"closed","status":"REJECTED 2026-07-25"},{"age_days":35,"application_date":null,"application_id":"app-20260720-m-files-ai-native-engineer-agentic-development-d91ba209","channel":"LinkedIn","company":"M-Files","feedback_evidence_tier":"","fit_band":"missing","fit_score":null,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Screen opportunity","role":"AI Native Engineer (Agentic Development)","role_family":"applied_ai","seniority":"unknown","source":"https://www.linkedin.com/jobs/view/4431656747","stage":"prospect","status":"LOW PRIORITY - NOT APPLIED (FINLAND AUTH BLOCKER)"},{"age_days":19,"application_date":"2026-07-20","application_id":"app-20260720-tandem-health-ai-engineer-003fbe2a","channel":"Ashby","company":"Tandem Health","feedback_evidence_tier":"boilerplate","fit_band":"80-89","fit_score":86.0,"geography":"unknown","latest_feedback_signal":"The rejection contained no candidate-specific actionable signal.","logistics_status":"unknown","next_action":"None","role":"AI Engineer","role_family":"applied_ai","seniority":"unknown","source":"https://jobs.ashbyhq.com/tandem-health/583fef4f-4417-40d9-a87e-e405180f71ce/application","stage":"closed","status":"REJECTED 2026-08-05"},{"age_days":28,"application_date":"2026-07-21","application_id":"app-20260721-moss-senior-platform-engineer-agentic-experience-fc30efe8","channel":"Ashby","company":"Moss","feedback_evidence_tier":"boilerplate","fit_band":"80-89","fit_score":84.0,"geography":"unknown","latest_feedback_signal":"The rejection contained no candidate-specific actionable signal.","logistics_status":"unknown","next_action":"None","role":"Senior Platform Engineer (Agentic Experience)","role_family":"ai_platform","seniority":"unknown","source":"https://jobs.ashbyhq.com/moss/0800fd15-46d6-4709-ab3b-ea2a421f4afe/application","stage":"closed","status":"REJECTED 2026-07-27"},{"age_days":25,"application_date":"2026-07-21","application_id":"app-20260721-n8n-sr-ai-engineer-remote-europe-ts-vue-nodejs-ee1f167b","channel":"Ashby","company":"n8n","feedback_evidence_tier":"boilerplate","fit_band":"80-89","fit_score":88.0,"geography":"unknown","latest_feedback_signal":"The rejection contained no candidate-specific actionable signal.","logistics_status":"unknown","next_action":"None","role":"Sr AI Engineer | Remote - Europe | TS/Vue/NodeJS","role_family":"applied_ai","seniority":"unknown","source":"https://jobs.ashbyhq.com/n8n/d195a389-6af5-4b95-82e5-2258953c7297/application","stage":"closed","status":"REJECTED 2026-07-30"},{"age_days":20,"application_date":"2026-07-21","application_id":"app-20260721-nordea-senior-data-scientist-ai-engineer-generative-ai-1878-16b2ad0e","channel":"LinkedIn / Nordea careers","company":"Nordea","feedback_evidence_tier":"explicit","fit_band":"80-89","fit_score":88.0,"geography":"unknown","latest_feedback_signal":"Hands-on machine-learning and GenAI evaluation evidence was less extensive than selected candidates'.","logistics_status":"unknown","next_action":"Prepare for interview","role":"Senior Data Scientist / AI Engineer - Generative AI (1878)","role_family":"applied_ai","seniority":"unknown","source":"https://www.linkedin.com/jobs/view/4417361694/","stage":"interview","status":"REJECTED 2026-08-04 (post-interview) - FEEDBACK RECEIVED"},{"age_days":27,"application_date":"2026-07-21","application_id":"app-20260721-seb-eesti-ai-engineering-architect-in-delivery-excellence-e959e0d9","channel":"LinkedIn","company":"SEB Eesti","feedback_evidence_tier":"boilerplate","fit_band":"missing","fit_score":null,"geography":"unknown","latest_feedback_signal":"The rejection contained no candidate-specific actionable signal.","logistics_status":"unknown","next_action":"None","role":"AI Engineering Architect in Delivery Excellence","role_family":"applied_ai","seniority":"unknown","source":"https://www.linkedin.com/jobs/view/4442719816/","stage":"closed","status":"REJECTED 2026-07-28"},{"age_days":7,"application_date":"2026-07-22","application_id":"app-20260722-google-cloud-senior-software-engineer-ai-agent-ecosystem-adk-bad1f55c","channel":"Google Careers","company":"Google Cloud","feedback_evidence_tier":"","fit_band":"90-100","fit_score":92.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Senior Software Engineer, AI Agent Ecosystem, ADK","role_family":"applied_ai","seniority":"unknown","source":"https://www.google.com/about/careers/applications/jobs/results/105831903721857734","stage":"submitted","status":"SUBMITTED - CONFIRMED ON GOOGLE CAREERS 2026-08-17"},{"age_days":33,"application_date":null,"application_id":"app-20260722-google-cloud-software-engineer-ii-agent-development-lifecycle-7e898f15","channel":"LinkedIn post / Google Careers","company":"Google Cloud","feedback_evidence_tier":"","fit_band":"70-79","fit_score":76.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Screen opportunity","role":"Software Engineer II, Agent Development Lifecycle","role_family":"applied_ai","seniority":"unknown","source":"https://www.google.com/about/careers/applications/jobs/results/116373991144202950","stage":"prospect","status":"LOW PRIORITY - SKIP (UNDERLEVELLED)"},{"age_days":33,"application_date":null,"application_id":"app-20260722-google-cloud-software-engineer-iii-agent-development-lifecycle-540a7fa6","channel":"LinkedIn post / Google Careers","company":"Google Cloud","feedback_evidence_tier":"","fit_band":"80-89","fit_score":89.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Screen opportunity","role":"Software Engineer III, Agent Development Lifecycle","role_family":"applied_ai","seniority":"unknown","source":"https://www.google.com/about/careers/applications/jobs/results/121136311011549894","stage":"prospect","status":"BACKUP TARGET - APPLY IF USING SECOND GOOGLE SLOT"},{"age_days":33,"application_date":"2026-07-22","application_id":"app-20260722-lufinity-ai-senior-ai-software-engineer-446d4903","channel":"LinkedIn","company":"Lufinity AI","feedback_evidence_tier":"","fit_band":"missing","fit_score":null,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Senior AI Software Engineer","role_family":"other","seniority":"unknown","source":"https://www.linkedin.com/jobs/view/4442592883/","stage":"submitted","status":"SUBMITTED 2026-07-22"},{"age_days":32,"application_date":null,"application_id":"app-20260723-brillian-agentic-engineering-lead-6992c073","channel":"LinkedIn Gmail alert","company":"Brillian","feedback_evidence_tier":"","fit_band":"missing","fit_score":null,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Screen opportunity","role":"Agentic Engineering Lead","role_family":"applied_ai","seniority":"unknown","source":"https://www.linkedin.com/jobs/view/4443320917","stage":"prospect","status":"LOW PRIORITY - SKIP (FINNISH/FINLAND BLOCKER)"},{"age_days":27,"application_date":"2026-07-23","application_id":"app-20260723-doit-international-applied-ai-engineer-041519af","channel":"Greenhouse / DoiT careers","company":"DoiT International","feedback_evidence_tier":"boilerplate","fit_band":"90-100","fit_score":91.0,"geography":"unknown","latest_feedback_signal":"The rejection contained no candidate-specific actionable signal.","logistics_status":"unknown","next_action":"None","role":"Applied AI Engineer","role_family":"applied_ai","seniority":"unknown","source":"https://job-boards.greenhouse.io/doitintl/jobs/7805653003","stage":"closed","status":"REJECTED 2026-07-28 - POSITION FILLED"},{"age_days":28,"application_date":"2026-07-23","application_id":"app-20260723-helsing-staff-software-engineer-5c4ea4b5","channel":"Helsing careers / LinkedIn","company":"Helsing","feedback_evidence_tier":"boilerplate","fit_band":"missing","fit_score":null,"geography":"unknown","latest_feedback_signal":"The rejection contained no candidate-specific actionable signal.","logistics_status":"unknown","next_action":"None","role":"Staff Software Engineer","role_family":"other","seniority":"unknown","source":"https://www.linkedin.com/jobs/view/4435902379","stage":"closed","status":"REJECTED 2026-07-27"},{"age_days":21,"application_date":"2026-07-23","application_id":"app-20260723-kapo-estonian-internal-security-service-ai-susteemide-arendaja-298ecfd4","channel":"LinkedIn","company":"KAPO / Estonian Internal Security Service","feedback_evidence_tier":"","fit_band":"missing","fit_score":null,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"AI süsteemide arendaja","role_family":"other","seniority":"unknown","source":"https://www.linkedin.com/jobs/view/4443159055","stage":"submitted","status":"SUBMITTED 2026-07-23 - VIEWED 2026-08-03 (2nd view)"},{"age_days":0,"application_date":null,"application_id":"app-20260723-roleo-founding-engineer-3e55c0b1","channel":"LinkedIn Gmail alert","company":"Roleo","feedback_evidence_tier":"","fit_band":"90-100","fit_score":90.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Screen opportunity","role":"Founding Engineer","role_family":"other","seniority":"unknown","source":"https://www.linkedin.com/jobs/view/4440128137","stage":"prospect","status":"FOLLOW-UP SENT 2026-08-24 - AWAITING REPLY"},{"age_days":32,"application_date":"2026-07-23","application_id":"app-20260723-ruby-labs-senior-ai-engineer-916bbf71","channel":"Ashby","company":"Ruby Labs","feedback_evidence_tier":"","fit_band":"90-100","fit_score":92.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Senior AI Engineer","role_family":"applied_ai","seniority":"unknown","source":"https://jobs.ashbyhq.com/ruby-labs/04d181c6-eb35-46c3-a474-e46e4f7b6767","stage":"submitted","status":"CONFIRMED RECEIVED 2026-07-23"},{"age_days":24,"application_date":"2026-07-23","application_id":"app-20260723-wise-senior-engineering-lead-generative-ai-platform-9b39df55","channel":"Wise jobs / LinkedIn","company":"Wise","feedback_evidence_tier":"observed","fit_band":"80-89","fit_score":88.0,"geography":"unknown","latest_feedback_signal":"Lead-level scope was not expressed as a clear team, ownership, decision, and outcome.","logistics_status":"unknown","next_action":"Prepare for interview","role":"Senior Engineering Lead, Generative AI Platform","role_family":"ai_platform","seniority":"unknown","source":"https://wise.jobs/job/senior-engineering-lead-generative-ai-platform-in-tallinn-jid-3666","stage":"interview","status":"REJECTED 2026-07-31 (post-interview) - FEEDBACK REQUESTED 2026-07-31"},{"age_days":28,"application_date":"2026-07-27","application_id":"app-20260727-amboras-ai-engineer-76ae2366","channel":"Direct careers page","company":"Amboras","feedback_evidence_tier":"","fit_band":"80-89","fit_score":88.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"AI Engineer","role_family":"applied_ai","seniority":"unknown","source":"https://www.amboras.com/hiring","stage":"submitted","status":"SUBMITTED 2026-07-27"},{"age_days":28,"application_date":"2026-07-27","application_id":"app-20260727-freedom-consulting-inc-forward-deployment-engineer-ai-deployment-engineer-opportunities-f786c065","channel":"LinkedIn InMail","company":"Freedom Consulting Inc.","feedback_evidence_tier":"","fit_band":"80-89","fit_score":82.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Forward Deployment Engineer / AI Deployment Engineer opportunities","role_family":"forward_deployed","seniority":"unknown","source":"https://www.linkedin.com/messaging/thread/2-ZjQyMzFmOTItODQzYi00MTRkLWIwM2UtZTA1NTI3NTRmNjE3XzEwMA==/","stage":"submitted","status":"FORM SUBMITTED + DETAILS SENT 2026-08-03"},{"age_days":27,"application_date":null,"application_id":"app-20260728-manticoreai-founding-ai-security-engineer-62b5ccca","channel":"LinkedIn InMail + Calendly + direct email","company":"ManticoreAI","feedback_evidence_tier":"","fit_band":"90-100","fit_score":90.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"None","role":"Founding AI / Security Engineer","role_family":"ai_security","seniority":"unknown","source":"https://manticore.ai","stage":"closed","status":"CLOSED 2026-08-05 - POSITION FILLED"},{"age_days":22,"application_date":"2026-08-02","application_id":"app-20260801-braintrust-open-source-engineer-python-66d0ccf5","channel":"Braintrust careers / Ashby","company":"Braintrust","feedback_evidence_tier":"","fit_band":"80-89","fit_score":88.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Open Source Engineer - Python","role_family":"other","seniority":"unknown","source":"https://www.braintrust.dev/careers/ba4d6676-f65c-42c9-84ee-285f2da15e0d","stage":"submitted","status":"SUBMITTED 2026-08-02 - CONFIRMED RECEIVED 2026-08-02"},{"age_days":23,"application_date":null,"application_id":"app-20260801-camunda-ai-forward-deployed-engineer-emea-50c0f15f","channel":"Ashby / Camunda careers","company":"Camunda","feedback_evidence_tier":"","fit_band":"90-100","fit_score":92.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"None","role":"AI Forward Deployed Engineer, EMEA","role_family":"forward_deployed","seniority":"unknown","source":"https://jobs.ashbyhq.com/camunda/42b8007d-8299-4793-9581-2b3868ba0754","stage":"closed","status":"CLOSED / REPLACED REQUISITION - NOT SUBMITTED"},{"age_days":22,"application_date":"2026-08-02","application_id":"app-20260801-vercel-software-engineer-ai-sdk-09589511","channel":"Vercel careers","company":"Vercel","feedback_evidence_tier":"","fit_band":"90-100","fit_score":92.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Software Engineer, AI SDK","role_family":"ai_platform","seniority":"unknown","source":"https://vercel.com/careers/software-engineer-ai-sdk-5474915004","stage":"submitted","status":"SUBMITTED 2026-08-02 - CONFIRMED RECEIVED 2026-08-02"},{"age_days":23,"application_date":"2026-08-01","application_id":"app-20260801-xop-ai-associate-ai-developer-5ba56a4d","channel":"Company careers form","company":"xop.ai","feedback_evidence_tier":"","fit_band":"80-89","fit_score":86.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Associate AI Developer","role_family":"other","seniority":"unknown","source":"https://xop.ai/careers/associate-ai-developer","stage":"submitted","status":"SUBMITTED 2026-08-01"},{"age_days":12,"application_date":"2026-08-10","application_id":"app-20260810-bolt-principal-program-manager-ai-project-charter-b800300d","channel":"Bolt careers page","company":"Bolt","feedback_evidence_tier":"boilerplate","fit_band":"90-100","fit_score":93.0,"geography":"unknown","latest_feedback_signal":"The rejection contained no candidate-specific actionable signal.","logistics_status":"unknown","next_action":"None","role":"Principal Program Manager, AI Project Charter","role_family":"other","seniority":"unknown","source":"https://bolt.eu/en/careers/positions/17571024-3767-49cc-8c0d-633f10054cc7/","stage":"closed","status":"REJECTED 2026-08-12"},{"age_days":12,"application_date":"2026-08-10","application_id":"app-20260810-shen-ai-agentic-systems-engineer-a3165212","channel":"Company Google Form","company":"Shen AI","feedback_evidence_tier":"","fit_band":"80-89","fit_score":89.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Agentic Systems Engineer","role_family":"applied_ai","seniority":"unknown","source":"https://shen.ai/job-post/agentic-systems-engineer","stage":"submitted","status":"SUBMITTED - USER CONFIRMED 2026-08-12"},{"age_days":8,"application_date":"2026-08-16","application_id":"app-20260816-luminor-bank-ai-platform-engineer-beee6e82","channel":"Teamtailor / CVKeskus","company":"Luminor Bank","feedback_evidence_tier":"","fit_band":"80-89","fit_score":82.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"AI Platform Engineer","role_family":"ai_platform","seniority":"unknown","source":"https://www.cvkeskus.ee/ai-platform-engineer-tallinnas-luminor-bank-as-1047220","stage":"submitted","status":"CONFIRMED RECEIVED + EMAIL VERIFIED 2026-08-16"},{"age_days":3,"application_date":"2026-08-16","application_id":"app-20260816-luminor-bank-senior-security-engineer-data-platform-f471118d","channel":"Teamtailor / CVKeskus","company":"Luminor Bank","feedback_evidence_tier":"boilerplate","fit_band":"80-89","fit_score":84.0,"geography":"unknown","latest_feedback_signal":"The rejection contained no candidate-specific actionable signal.","logistics_status":"unknown","next_action":"None","role":"Senior Security Engineer (Data Platform)","role_family":"ai_security","seniority":"unknown","source":"https://www.cvkeskus.ee/senior-security-engineer-data-platform-tallinnas-luminor-bank-as-1049329","stage":"closed","status":"REJECTED 2026-08-21"},{"age_days":8,"application_date":"2026-08-16","application_id":"app-20260816-whisperly-senior-applied-ai-engineer-10bfcd78","channel":"Company careers page","company":"Whisperly","feedback_evidence_tier":"","fit_band":"90-100","fit_score":93.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Senior Applied AI Engineer","role_family":"applied_ai","seniority":"unknown","source":"https://whisperly.ai/careers/senior-applied-ai-engineer","stage":"submitted","status":"CONFIRMED RECEIVED 2026-08-16"},{"age_days":7,"application_date":"2026-08-17","application_id":"app-20260817-camunda-ai-process-forward-deployed-engineer-b1337216","channel":"Ashby / Camunda careers","company":"Camunda","feedback_evidence_tier":"","fit_band":"90-100","fit_score":92.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"AI Process Forward Deployed Engineer","role_family":"forward_deployed","seniority":"unknown","source":"https://jobs.ashbyhq.com/camunda/987fb6e0-1e22-45e5-b152-57acbcb59cb2","stage":"submitted","status":"SUBMITTED - CONFIRMED ON PAGE 2026-08-17"},{"age_days":7,"application_date":"2026-08-17","application_id":"app-20260817-eigen-labs-senior-agentic-ai-engineer-ac165b9d","channel":"Ashby / Eigen Labs careers","company":"Eigen Labs","feedback_evidence_tier":"","fit_band":"90-100","fit_score":94.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Senior Agentic AI Engineer","role_family":"applied_ai","seniority":"unknown","source":"https://jobs.ashbyhq.com/eigen-labs/c02fa001-23c9-4d68-8c0a-e27a742d76a4/application","stage":"submitted","status":"SUBMITTED - CONFIRMED ON PAGE 2026-08-17"},{"age_days":7,"application_date":"2026-08-17","application_id":"app-20260817-hipeople-applied-ai-engineer-systems-reliability-remote-berlin-based-7b3eea78","channel":"Ashby / HiPeople careers","company":"HiPeople","feedback_evidence_tier":"","fit_band":"90-100","fit_score":95.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Applied AI Engineer – Systems & Reliability (remote/Berlin-based)","role_family":"applied_ai","seniority":"unknown","source":"https://jobs.ashbyhq.com/hipeople-official/6c330d7b-7c6d-4993-8893-b58b5289d442/application","stage":"submitted","status":"SUBMITTED - CONFIRMED ON PAGE 2026-08-17"},{"age_days":0,"application_date":"2026-08-17","application_id":"app-20260817-robco-senior-applied-ai-engineer-m-f-d-150554b1","channel":"Ashby / RobCo careers","company":"RobCo","feedback_evidence_tier":"boilerplate","fit_band":"90-100","fit_score":96.0,"geography":"unknown","latest_feedback_signal":"The rejection contained no candidate-specific actionable signal.","logistics_status":"unknown","next_action":"None","role":"Senior Applied AI Engineer (m/f/d)","role_family":"applied_ai","seniority":"unknown","source":"https://jobs.ashbyhq.com/robco/4d090169-ddee-4058-9020-4940f0877f7d/application","stage":"closed","status":"REJECTED 2026-08-24"},{"age_days":7,"application_date":"2026-08-17","application_id":"app-20260817-sky-spy-python-software-engineer-ai-ml-integration-ai-agents-17487f9c","channel":"JazzHR / Sky Spy careers","company":"Sky Spy","feedback_evidence_tier":"","fit_band":"80-89","fit_score":80.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Python Software Engineer - AI/ML Integration & AI Agents","role_family":"applied_ai","seniority":"unknown","source":"https://skyspyai.applytojob.com/apply/wFjXAodd3Y/Python-Software-Engineer-AIML-Integration-AI-Agents","stage":"submitted","status":"SUBMITTED - CONFIRMED ON PAGE 2026-08-17"},{"age_days":4,"application_date":"2026-08-20","application_id":"app-20260820-carta-staff-software-engineer-middle-office-c16fb2b1","channel":"Greenhouse / Carta careers","company":"Carta","feedback_evidence_tier":"boilerplate","fit_band":"70-79","fit_score":74.0,"geography":"unknown","latest_feedback_signal":"The rejection contained no candidate-specific actionable signal.","logistics_status":"unknown","next_action":"None","role":"Staff Software Engineer, Middle Office","role_family":"other","seniority":"unknown","source":"https://job-boards.greenhouse.io/carta/jobs/7866977003","stage":"closed","status":"REJECTED 2026-08-20"},{"age_days":3,"application_date":"2026-08-20","application_id":"app-20260820-databricks-field-engineering-enablement-leader-f9541a5b","channel":"Greenhouse / Databricks careers","company":"Databricks","feedback_evidence_tier":"boilerplate","fit_band":"80-89","fit_score":82.0,"geography":"unknown","latest_feedback_signal":"The rejection contained no candidate-specific actionable signal.","logistics_status":"unknown","next_action":"None","role":"Field Engineering Enablement Leader","role_family":"other","seniority":"unknown","source":"https://www.databricks.com/company/careers/field-engineering-enablement/field-engineering-enablement-leader-8701065002","stage":"closed","status":"REJECTED 2026-08-21"},{"age_days":3,"application_date":"2026-08-21","application_id":"app-20260821-esto-ai-automation-engineer-febbd4fa","channel":"Teamtailor / ESTO careers","company":"ESTO","feedback_evidence_tier":"","fit_band":"90-100","fit_score":93.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"AI Automation Engineer","role_family":"other","seniority":"unknown","source":"https://jobs.esto.eu/jobs/8235300-ai-automation-engineer","stage":"submitted","status":"CONFIRMED RECEIVED 2026-08-21"},{"age_days":3,"application_date":"2026-08-21","application_id":"app-20260821-r8-technologies-full-stack-software-engineer-ai-native-97d42b4f","channel":"Email / R8 Technologies careers","company":"R8 Technologies","feedback_evidence_tier":"","fit_band":"90-100","fit_score":92.0,"geography":"unknown","latest_feedback_signal":"","logistics_status":"unknown","next_action":"Follow up","role":"Full Stack Software Engineer (AI-Native)","role_family":"other","seniority":"unknown","source":"https://r8tech.io/career/full-stack-software-engineer-ai-native/","stage":"submitted","status":"SUBMITTED - EMAIL SENT 2026-08-21"}],"response_metrics":{"interview_rate":0.05555555555555555,"interviewed":4,"median_time_to_decision_hours":168.0,"median_time_to_response_hours":132.0,"offer_rate":0.0,"offered":0,"open_applications":47,"responded":26,"response_rate":0.3611111111111111,"submitted":72},"today":{"drafting":0,"follow_ups":1,"qualified":1,"ready":0,"rejected_by_gate":0,"review_queue":0,"screened":0,"screening_target":100,"stale":58,"submission_soft_capacity":20,"submitted":0},"weekly_cohorts":[{"applications":11,"conversion_rates":{"interview":0.09090909090909091,"offer":0.0,"response":0.2727272727272727},"insufficient_sample":false,"interviewed":1,"offered":0,"responded":3,"submitted":11,"week_start":"2026-06-29"},{"applications":5,"conversion_rates":{"interview":0.2,"offer":0.0,"response":0.4},"insufficient_sample":false,"interviewed":1,"offered":0,"responded":2,"submitted":5,"week_start":"2026-07-06"},{"applications":21,"conversion_rates":{"interview":0.0,"offer":0.0,"response":0.3333333333333333},"insufficient_sample":false,"interviewed":0,"offered":0,"responded":7,"submitted":21,"week_start":"2026-07-13"},{"applications":16,"conversion_rates":{"interview":0.125,"offer":0.0,"response":0.5625},"insufficient_sample":false,"interviewed":2,"offered":0,"responded":9,"submitted":16,"week_start":"2026-07-20"},{"applications":5,"conversion_rates":{"interview":0.0,"offer":0.0,"response":0.0},"insufficient_sample":false,"interviewed":0,"offered":0,"responded":0,"submitted":5,"week_start":"2026-07-27"},{"applications":5,"conversion_rates":{"interview":0.0,"offer":0.0,"response":0.4},"insufficient_sample":false,"interviewed":0,"offered":0,"responded":2,"submitted":5,"week_start":"2026-08-10"},{"applications":9,"conversion_rates":{"interview":0.0,"offer":0.0,"response":0.3333333333333333},"insufficient_sample":false,"interviewed":0,"offered":0,"responded":3,"submitted":9,"week_start":"2026-08-17"}]};
+
+    (() => {
+      const DATA = window.__JOB_ANALYTICS__;
+      const PAGE_SIZE = 50;
+      const FILTER_KEYS = ["date_start", "date_end", "role_family", "geography", "channel", "stage", "fit_band", "evidence_tier", "feedback_category", "logistics_status", "seniority"];
+      const CONTROL_IDS = {
+        date_start: "date-start", date_end: "date-end", role_family: "role-family", geography: "geography",
+        channel: "channel", stage: "stage", fit_band: "fit-band", evidence_tier: "evidence-tier",
+        feedback_category: "feedback-category", logistics_status: "logistics-status", seniority: "seniority"
+      };
+      const OPTION_LABELS = {
+        role_family: "All Role Families", geography: "All Geographies", channel: "All Channels",
+        stage: "All Stages", fit_band: "All Fit Bands", evidence_tier: "All Evidence Tiers",
+        feedback_category: "All Feedback Categories", logistics_status: "All Logistics Statuses", seniority: "All Seniority Levels"
+      };
+      const numberFormat = new Intl.NumberFormat(undefined);
+      const percentFormat = new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 0 });
+      const dateFormat = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric" });
+      const state = {
+        date_start: "", date_end: "", role_family: "", geography: "", channel: "", stage: "", fit_band: "",
+        evidence_tier: "", feedback_category: "", logistics_status: "", seniority: "", search: "", page: 1,
+        sort: "application_date", dir: "desc", tab: "today", expanded: []
+      };
+      let statusTimer = 0;
+
+      const escapeHTML = (value) => String(value ?? "").replace(/[&<>'"]/g, (character) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", "\"": "&quot;"
+      })[character]);
+      const pretty = (value) => String(value || "Unknown").replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+      const formatDate = (value) => {
+        if (!value) return "Not recorded";
+        const parsed = new Date(`${value}T00:00:00`);
+        return Number.isNaN(parsed.valueOf()) ? "Not recorded" : dateFormat.format(parsed);
+      };
+      const safeSource = (value) => {
+        try {
+          const parsed = new URL(value);
+          return ["http:", "https:"].includes(parsed.protocol) ? parsed.href : "";
+        } catch { return ""; }
+      };
+      const isFullSet = (rows) => rows.length === DATA.pipeline.length && FILTER_KEYS.every((key) => !state[key]);
+      const selectedOption = (value, selected) => `<option value="${escapeHTML(value)}"${value === selected ? " selected" : ""}>${escapeHTML(pretty(value))}</option>`;
+
+      function announce(message) {
+        const region = document.getElementById("status");
+        region.textContent = message;
+        region.classList.add("is-visible");
+        window.clearTimeout(statusTimer);
+        statusTimer = window.setTimeout(() => region.classList.remove("is-visible"), 1800);
+      }
+
+      function emptyState(title, message, actionLabel = "Reset Filters") {
+        return `<div class="empty-state"><h3>${escapeHTML(title)}</h3><p>${escapeHTML(message)}</p><button class="button button-primary" type="button" data-empty-action="reset">${escapeHTML(actionLabel)}</button></div>`;
+      }
+
+      function readURLState() {
+        const params = new URLSearchParams(window.location.search);
+        FILTER_KEYS.forEach((key) => { state[key] = params.get(key) || ""; });
+        state.search = params.get("search") || "";
+        state.page = Math.max(1, Number.parseInt(params.get("page") || "1", 10) || 1);
+        state.sort = ["company", "role", "application_date", "stage", "fit_score", "age_days"].includes(params.get("sort")) ? params.get("sort") : "application_date";
+        state.dir = params.get("dir") === "asc" ? "asc" : "desc";
+        state.tab = params.get("tab") || "today";
+        state.expanded = (params.get("feedback") || "").split(",").filter(Boolean);
+      }
+
+      function writeURLState() {
+        const params = new URLSearchParams();
+        FILTER_KEYS.forEach((key) => { if (state[key]) params.set(key, state[key]); });
+        if (state.search) params.set("search", state.search);
+        if (state.page > 1) params.set("page", String(state.page));
+        if (state.sort !== "application_date") params.set("sort", state.sort);
+        if (state.dir !== "desc") params.set("dir", state.dir);
+        if (state.tab !== "today") params.set("tab", state.tab);
+        if (state.expanded.length) params.set("feedback", state.expanded.join(","));
+        const next = params.toString();
+        history.replaceState(null, "", `${window.location.pathname}${next ? `?${next}` : ""}${window.location.hash}`);
+      }
+
+      function populateFilters() {
+        const sourceMap = {
+          role_family: DATA.filters.role_family, geography: DATA.filters.geography, channel: DATA.filters.channel,
+          stage: DATA.filters.stage, fit_band: DATA.filters.fit_band, evidence_tier: DATA.filters.evidence_tier,
+          feedback_category: DATA.filters.feedback_category, logistics_status: DATA.filters.logistics_status, seniority: DATA.filters.seniority
+        };
+        Object.entries(sourceMap).forEach(([key, values]) => {
+          const control = document.getElementById(CONTROL_IDS[key]);
+          control.innerHTML = `<option value="">${OPTION_LABELS[key]}</option>${values.map((value) => selectedOption(value, state[key])).join("")}`;
+        });
+        FILTER_KEYS.forEach((key) => { document.getElementById(CONTROL_IDS[key]).value = state[key]; });
+        document.getElementById("pipeline-search").value = state.search;
+      }
+
+      function feedbackApplicationIds() {
+        const ids = new Set();
+        DATA.feedback.lineage.forEach((rule) => rule.application_ids.forEach((id) => ids.add(id)));
+        return ids;
+      }
+
+      function applyFilters(currentState) {
+        const feedbackIds = feedbackApplicationIds();
+        const rows = DATA.pipeline.filter((row) => {
+          if (currentState.date_start && (!row.application_date || row.application_date < currentState.date_start)) return false;
+          if (currentState.date_end && (!row.application_date || row.application_date > currentState.date_end)) return false;
+          if (currentState.role_family && row.role_family !== currentState.role_family) return false;
+          if (currentState.geography && row.geography !== currentState.geography) return false;
+          if (currentState.channel && row.channel !== currentState.channel) return false;
+          if (currentState.stage && row.stage !== currentState.stage) return false;
+          if (currentState.fit_band && row.fit_band !== currentState.fit_band) return false;
+          if (currentState.evidence_tier && row.feedback_evidence_tier !== currentState.evidence_tier) return false;
+          if (currentState.logistics_status && row.logistics_status !== currentState.logistics_status) return false;
+          if (currentState.seniority && row.seniority !== currentState.seniority) return false;
+          if (currentState.feedback_category && !feedbackIds.has(row.application_id)) return false;
+          return true;
+        });
+        return { ids: new Set(rows.map((row) => row.application_id)), rows };
+      }
+
+      function barChart(id, title, description, rows, valueLabel = "Count") {
+        if (!rows.length) return emptyState(`No ${title.toLowerCase()} data`, "Broaden the shared filters to restore this chart.");
+        const width = 720;
+        const rowHeight = 42;
+        const left = 175;
+        const right = 70;
+        const height = rows.length * rowHeight + 36;
+        const max = Math.max(1, ...rows.map((row) => row.value));
+        const bars = rows.map((row, index) => {
+          const y = index * rowHeight + 12;
+          const barWidth = ((width - left - right) * row.value) / max;
+          return `<text class="axis" x="0" y="${y + 15}">${escapeHTML(row.label)}</text><rect class="bar-bg" x="${left}" y="${y}" width="${width - left - right}" height="18"/><rect class="bar" x="${left}" y="${y}" width="${barWidth}" height="18"/><text class="value" x="${width - right + 10}" y="${y + 15}">${escapeHTML(row.display ?? numberFormat.format(row.value))}</text>`;
+        }).join("");
+        const tableRows = rows.map((row) => `<tr><th scope="row">${escapeHTML(row.label)}</th><td>${escapeHTML(row.display ?? numberFormat.format(row.value))}</td></tr>`).join("");
+        return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="${id}-title ${id}-description"><title id="${id}-title">${escapeHTML(title)}</title><desc id="${id}-description">${escapeHTML(description)}</desc>${bars}</svg><table class="chart-table"><caption>Text Summary: ${escapeHTML(title)}</caption><thead><tr><th scope="col">Segment</th><th scope="col">${escapeHTML(valueLabel)}</th></tr></thead><tbody>${tableRows}</tbody></table>`;
+      }
+
+      function renderCommandCenter(rows) {
+        const full = isFullSet(rows);
+        const byStage = (name) => rows.filter((row) => row.stage === name).length;
+        const submitted = full ? DATA.today.submitted : byStage("submitted");
+        const screened = full ? DATA.today.screened : null;
+        const ambiguousSet = new Set(DATA.data_quality.ambiguous_statuses);
+        const staleSet = new Set(DATA.data_quality.stale_rows);
+        const ambiguous = rows.filter((row) => ambiguousSet.has(row.application_id)).length;
+        const stale = rows.filter((row) => staleSet.has(row.application_id)).length;
+        const screeningRatio = screened === null ? 0 : Math.min(100, screened / DATA.today.screening_target * 100);
+        const submissionRatio = Math.min(100, submitted / DATA.today.submission_soft_capacity * 100);
+        document.getElementById("coverage-note").innerHTML = DATA.data_quality.lifecycle_coverage.insufficient
+          ? `<div class="coverage-note" role="note"><strong>Coverage Gap</strong><span>Historical ${escapeHTML(DATA.data_quality.lifecycle_coverage.missing_event_types.join(" and "))} events are missing. Early-funnel conversion is not inferred. Filtered screening totals are shown as unavailable.</span></div>` : "";
+        document.getElementById("command-kpis").innerHTML = `<div class="throughput-bands">
+          <article class="throughput-band"><div class="band-top"><p class="band-label">Screening Throughput</p><p class="band-value">${screened === null ? "Unavailable" : `${numberFormat.format(screened)} / ${numberFormat.format(DATA.today.screening_target)}`}</p></div><div class="meter" aria-hidden="true"><span style="width:${screeningRatio}%"></span></div><p class="band-note">Daily screening target: ${numberFormat.format(DATA.today.screening_target)}. This is volume reviewed, not submission capacity.</p></article>
+          <article class="throughput-band"><div class="band-top"><p class="band-label">Submission Capacity</p><p class="band-value">${numberFormat.format(submitted)} / ${numberFormat.format(DATA.today.submission_soft_capacity)}</p></div><div class="meter" aria-hidden="true"><span style="width:${submissionRatio}%"></span></div><p class="band-note">Soft daily capacity: ${numberFormat.format(DATA.today.submission_soft_capacity)} carefully prepared submissions.</p></article>
+        </div><div class="ledger-strip" aria-label="Operational counts">
+          ${[["Gate Rejections", full ? DATA.today.rejected_by_gate : "Unavailable"], ["Qualified", byStage("qualified")], ["Drafting", byStage("drafting")], ["Ready", byStage("ready")], ["Follow-ups", full ? DATA.today.follow_ups : "Unavailable"], ["Stale", stale], ["Ambiguous", ambiguous]].map(([label, value]) => `<div class="ledger-item"><span class="metric-value">${typeof value === "number" ? numberFormat.format(value) : value}</span><span class="metric-label">${label}</span></div>`).join("")}
+        </div>`;
+      }
+
+      function renderFunnel(rows) {
+        if (!rows.length) {
+          document.getElementById("funnel-chart").innerHTML = emptyState("No funnel records", "Broaden the shared filters to recover lifecycle records.");
+          return;
+        }
+        const stageCounts = new Map();
+        rows.forEach((row) => stageCounts.set(pretty(row.stage), (stageCounts.get(pretty(row.stage)) || 0) + 1));
+        const data = [["Visible Applications", rows.length], ...[...stageCounts.entries()].sort((a, b) => b[1] - a[1])].map(([label, value]) => ({ label, value }));
+        document.getElementById("funnel-chart").innerHTML = barChart("funnel-svg", "Recorded Funnel", "Counts by current recorded stage for the filtered application set. Missing historical screened and qualified events are not inferred.", data);
+      }
+
+      function renderTimeSeries(rows) {
+        if (!rows.length) {
+          document.getElementById("time-series-chart").innerHTML = emptyState("No submission cadence", "Broaden the shared filters to include dated submissions.");
+          return;
+        }
+        const dated = new Map();
+        rows.filter((row) => row.application_date).forEach((row) => dated.set(row.application_date, (dated.get(row.application_date) || 0) + 1));
+        const points = [...dated.entries()].sort(([a], [b]) => a.localeCompare(b)).slice(-16);
+        if (!points.length) {
+          document.getElementById("time-series-chart").innerHTML = emptyState("No dated submissions", "Reset the date filters to inspect applications with recorded submission dates.");
+          return;
+        }
+        const width = 720, height = 250, padX = 54, padY = 34;
+        const max = Math.max(1, ...points.map(([, value]) => value));
+        const x = (index) => points.length === 1 ? width / 2 : padX + index * (width - padX * 2) / (points.length - 1);
+        const y = (value) => height - padY - value * (height - padY * 2) / max;
+        const path = points.map(([, value], index) => `${index ? "L" : "M"}${x(index)},${y(value)}`).join(" ");
+        const dots = points.map(([date, value], index) => `<circle class="dot" cx="${x(index)}" cy="${y(value)}" r="5"><title>${escapeHTML(formatDate(date))}: ${numberFormat.format(value)} submissions</title></circle>`).join("");
+        const labels = points.map(([date], index) => index % Math.max(1, Math.ceil(points.length / 5)) === 0 ? `<text class="axis" x="${x(index)}" y="${height - 8}" text-anchor="middle">${escapeHTML(date.slice(5))}</text>` : "").join("");
+        const tableRows = points.map(([date, value]) => `<tr><th scope="row">${escapeHTML(formatDate(date))}</th><td>${numberFormat.format(value)}</td></tr>`).join("");
+        document.getElementById("time-series-chart").innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="series-title series-description"><title id="series-title">Submission Cadence</title><desc id="series-description">A line chart of recorded submitted application dates for the filtered set.</desc><path class="line" d="${path}"/>${dots}${labels}</svg><table class="chart-table"><caption>Text Summary: Submission Cadence</caption><thead><tr><th scope="col">Date</th><th scope="col">Submissions</th></tr></thead><tbody>${tableRows}</tbody></table>`;
+      }
+
+      function renderCalibration(rows) {
+        if (!rows.length) {
+          document.getElementById("calibration-chart").innerHTML = emptyState("No calibration sample", "Broaden the shared filters to restore fit-band denominators.");
+          return;
+        }
+        const bands = new Map();
+        rows.forEach((row) => {
+          const current = bands.get(row.fit_band) || { total: 0, submitted: 0 };
+          current.total += 1;
+          if (["submitted", "responded", "interview", "interviewed", "offer", "offered", "closed"].includes(row.stage)) current.submitted += 1;
+          bands.set(row.fit_band, current);
+        });
+        const order = ["90-100", "80-89", "70-79", "60-69", "0-59", "unscored"];
+        const data = [...bands.entries()].sort(([a], [b]) => order.indexOf(a) - order.indexOf(b)).map(([label, item]) => ({
+          label: `${label} (n=${numberFormat.format(item.total)})`, value: item.total ? item.submitted / item.total : 0,
+          display: `${percentFormat.format(item.total ? item.submitted / item.total : 0)} · ${numberFormat.format(item.submitted)}/${numberFormat.format(item.total)}`
+        }));
+        document.getElementById("calibration-chart").innerHTML = barChart("calibration-svg", "Fit-Band Submission Progression", "The share of visible applications in each fit band that reached submitted or a later recorded stage. Each label includes its sample size.", data, "Progression");
+      }
+
+      function renderFeedback(ids, rows) {
+        const lineage = DATA.feedback.lineage.filter((rule) => rule.application_ids.some((id) => ids.has(id)));
+        const feedbackRows = rows.filter((row) => row.latest_feedback_signal || row.feedback_evidence_tier);
+        const statuses = { active: 0, monitor: 0, resolved: 0 };
+        lineage.forEach((rule) => { if (Object.hasOwn(statuses, rule.status)) statuses[rule.status] += 1; });
+        const summary = `<div class="feedback-summary" aria-label="Feedback rule status counts">${[["Active", statuses.active], ["Monitor", statuses.monitor], ["Resolved", statuses.resolved]].map(([label, value]) => `<div><span class="metric-value">${numberFormat.format(value)}</span><span class="metric-label">${label} Rules in Visible Set</span></div>`).join("")}</div>`;
+        if (!lineage.length) {
+          document.getElementById("feedback-list").innerHTML = summary + emptyState("No feedback lineage in this set", "Broaden the shared filters to include applications linked to feedback rules.");
+          return;
+        }
+        const details = lineage.map((rule) => {
+          const sourceRows = rule.application_ids.map((id) => DATA.pipeline.find((row) => row.application_id === id)).filter(Boolean);
+          const tier = sourceRows.map((row) => row.feedback_evidence_tier).filter(Boolean).map(pretty).join(", ") || "Not recorded";
+          const excerpt = sourceRows.map((row) => row.latest_feedback_signal).filter(Boolean).join(" ") || "Evidence excerpt is not included in this analytics snapshot.";
+          const sourceLinks = sourceRows.map((row) => `<a href="#row-${encodeURIComponent(row.application_id)}">${escapeHTML(row.company || row.application_id)}</a>`).join(", ") || "Source application unavailable";
+          const open = state.expanded.includes(rule.rule_id) ? " open" : "";
+          return `<details data-rule-id="${escapeHTML(rule.rule_id)}"${open}><summary><span class="summary-title">Feedback Rule Lineage</span><span class="mono">${escapeHTML(rule.rule_id)}</span><span class="status-chip status-${escapeHTML(rule.status)}">${escapeHTML(pretty(rule.status))}</span></summary><div class="detail-body"><dl class="detail-grid"><div><dt>Evidence Tier</dt><dd>${escapeHTML(tier)}</dd></div><div><dt>Excerpt</dt><dd>${escapeHTML(excerpt)}</dd></div><div><dt>Required Action</dt><dd>Open the source application and apply the current rule before the next matching submission.</dd></div><div><dt>Source Application</dt><dd>${sourceLinks}</dd></div><div><dt>Confidence</dt><dd>Not recorded in this snapshot</dd></div><div><dt>State</dt><dd><span class="status-chip status-${escapeHTML(rule.status)}">${escapeHTML(pretty(rule.status))}</span></dd></div></dl></div></details>`;
+        }).join("");
+        const coverage = state.feedback_category ? `<div class="notice" role="note"><strong>Category Scope</strong><span>The snapshot exposes category totals and rule lineage separately. This category filter narrows to feedback-linked applications without inventing category-to-application attribution.</span></div>` : "";
+        document.getElementById("feedback-list").innerHTML = `${summary}${coverage}<p class="visually-hidden">${numberFormat.format(feedbackRows.length)} visible applications have a latest feedback signal.</p>${details}`;
+      }
+
+      function compareRows(a, b, key) {
+        const left = a[key] ?? "";
+        const right = b[key] ?? "";
+        if (typeof left === "number" && typeof right === "number") return left - right;
+        return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" });
+      }
+
+      function renderPipeline(rows) {
+        const query = state.search.trim().toLocaleLowerCase();
+        const searched = query ? rows.filter((row) => [row.company, row.role, row.status, row.application_id, row.stage, row.geography].some((value) => String(value || "").toLocaleLowerCase().includes(query))) : rows;
+        const sorted = [...searched].sort((a, b) => compareRows(a, b, state.sort) * (state.dir === "asc" ? 1 : -1));
+        const pages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+        state.page = Math.min(state.page, pages);
+        const start = (state.page - 1) * PAGE_SIZE;
+        const pageRows = sorted.slice(start, start + PAGE_SIZE);
+        document.getElementById("pipeline-count").textContent = `${numberFormat.format(searched.length)} visible applications`;
+        if (!pageRows.length) {
+          document.getElementById("pipeline-table").innerHTML = emptyState("No matching applications", "Clear the search or reset the shared filters.");
+          document.getElementById("pipeline-pagination").innerHTML = "";
+          return;
+        }
+        const columns = [
+          ["company", "Company & Role"], ["application_date", "Submitted"], ["stage", "Stage"], ["fit_score", "Fit"], ["age_days", "Age"], ["source", "Source"]
+        ];
+        const head = columns.map(([key, label]) => `<th scope="col" aria-sort="${state.sort === key ? (state.dir === "asc" ? "ascending" : "descending") : "none"}">${key === "source" ? label : `<button class="sort-button" type="button" data-sort="${key}">${label}</button>`}</th>`).join("");
+        const body = pageRows.map((row) => {
+          const href = safeSource(row.source);
+          const stage = pretty(row.stage);
+          return `<tr id="row-${escapeHTML(row.application_id)}"><td class="company-cell"><strong>${escapeHTML(row.company || "Unknown Company")}</strong><span>${escapeHTML(row.role || "Role not recorded")}</span><span class="mono">${escapeHTML(row.application_id)}</span></td><td>${escapeHTML(formatDate(row.application_date))}</td><td><span class="status-chip status-${row.stage === "closed" ? "resolved" : "monitor"}">${escapeHTML(stage)}</span><br><span>${escapeHTML(row.next_action)}</span></td><td data-kind="number">${row.fit_score === null ? "Not scored" : numberFormat.format(row.fit_score)}</td><td data-kind="number">${row.age_days === null ? "Not recorded" : `${numberFormat.format(row.age_days)} days`}</td><td>${href ? `<a class="row-link" href="${escapeHTML(href)}" target="_blank" rel="noreferrer">Open Source</a>` : "Not recorded"}</td></tr>`;
+        }).join("");
+        document.getElementById("pipeline-table").innerHTML = `<div class="table-scroll" tabindex="0" aria-label="Scrollable application pipeline"><table class="pipeline-table"><caption class="visually-hidden">Filtered application pipeline</caption><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+        document.getElementById("pipeline-pagination").innerHTML = `<span class="tabular">Page ${numberFormat.format(state.page)} of ${numberFormat.format(pages)} · rows ${numberFormat.format(start + 1)}–${numberFormat.format(Math.min(start + PAGE_SIZE, sorted.length))}</span><div class="pagination-actions"><button class="button" type="button" data-page="prev"${state.page === 1 ? " disabled" : ""}>Previous Page</button><button class="button" type="button" data-page="next"${state.page === pages ? " disabled" : ""}>Next Page</button></div>`;
+      }
+
+      function qualityEntries(ids) {
+        const quality = DATA.data_quality;
+        const intersection = (items) => items.filter((id) => ids.has(id));
+        return [
+          ["Missing Fit Scores", intersection(quality.missing_scores), "Review scoring fields"],
+          ["Missing Discovery Dates", intersection(quality.missing_dates), "Review source chronology"],
+          ["Ambiguous Statuses", intersection(quality.ambiguous_statuses), "Resolve pipeline stage"],
+          ["Stale Applications", intersection(quality.stale_rows), "Open stale records"],
+          ["Duplicate Applications", intersection(quality.duplicates.application_ids), "Resolve duplicate IDs"],
+          ["Duplicate Events", quality.duplicates.events, "Review event ledger"],
+          ["Orphaned Events", quality.orphaned_events, "Reconcile event ownership"],
+          ["Orphaned Feedback", quality.orphaned_feedback, "Reconcile feedback ownership"],
+          ["Invalid Event Times", quality.invalid_event_timestamps, "Correct event timestamps"],
+          ["Future Events", quality.future_events, "Verify reporting date"],
+          ["Review Queue", quality.review_queue.items, "Open review items"]
+        ];
+      }
+
+      function renderDataQuality(ids) {
+        const entries = qualityEntries(ids).filter(([, items]) => items.length);
+        if (!entries.length) {
+          document.getElementById("quality-list").innerHTML = emptyState("No quality issues in this set", "Reset the filters to review snapshot-wide data quality.");
+          return;
+        }
+        const rows = entries.map(([label, items, action]) => {
+          const links = items.slice(0, 4).map((item) => {
+            const id = typeof item === "string" ? item : item.review_id;
+            return ids.has(id) ? `<a href="#row-${encodeURIComponent(id)}">${escapeHTML(id)}</a>` : `<span class="mono">${escapeHTML(id)}</span>`;
+          }).join(", ");
+          return `<li class="quality-item"><strong>${escapeHTML(label)}</strong><span class="quality-count">${numberFormat.format(items.length)}</span><span class="quality-action">${escapeHTML(action)}${links ? `: ${links}` : ""}</span></li>`;
+        }).join("");
+        document.getElementById("quality-list").innerHTML = `<ul class="quality-list">${rows}</ul>`;
+      }
+
+      function renderAll({ announceChange = false } = {}) {
+        const filtered = applyFilters(state);
+        renderCommandCenter(filtered.rows);
+        renderFunnel(filtered.rows);
+        renderTimeSeries(filtered.rows);
+        renderCalibration(filtered.rows);
+        renderFeedback(filtered.ids, filtered.rows);
+        renderPipeline(filtered.rows);
+        renderDataQuality(filtered.ids);
+        document.getElementById("filter-scope").textContent = `${numberFormat.format(filtered.rows.length)} of ${numberFormat.format(DATA.pipeline.length)} applications drive every view.`;
+        document.querySelectorAll("[data-tab]").forEach((link) => link.setAttribute("aria-current", link.dataset.tab === state.tab ? "location" : "false"));
+        bindDynamicEvents();
+        writeURLState();
+        if (announceChange) announce(`${numberFormat.format(filtered.rows.length)} applications visible. Dashboard updated.`);
+      }
+
+      function resetState() {
+        FILTER_KEYS.forEach((key) => { state[key] = ""; });
+        state.search = ""; state.page = 1; state.sort = "application_date"; state.dir = "desc"; state.tab = "today"; state.expanded = [];
+        populateFilters();
+        renderAll({ announceChange: true });
+      }
+
+      function bindDynamicEvents() {
+        document.querySelectorAll("[data-empty-action='reset']").forEach((button) => button.addEventListener("click", resetState));
+        document.querySelectorAll("[data-sort]").forEach((button) => button.addEventListener("click", () => {
+          const key = button.dataset.sort;
+          state.dir = state.sort === key && state.dir === "asc" ? "desc" : "asc";
+          state.sort = key; state.page = 1; renderAll({ announceChange: true });
+        }));
+        document.querySelectorAll("[data-page]").forEach((button) => button.addEventListener("click", () => {
+          state.page += button.dataset.page === "next" ? 1 : -1; renderAll({ announceChange: true });
+          document.getElementById("pipeline-title").focus?.();
+        }));
+        document.querySelectorAll("details[data-rule-id]").forEach((details) => details.addEventListener("toggle", () => {
+          const id = details.dataset.ruleId;
+          state.expanded = details.open ? [...new Set([...state.expanded, id])] : state.expanded.filter((value) => value !== id);
+          writeURLState();
+        }));
+      }
+
+      function bindStaticEvents() {
+        FILTER_KEYS.forEach((key) => document.getElementById(CONTROL_IDS[key]).addEventListener("change", (event) => {
+          state[key] = event.currentTarget.value; state.page = 1; renderAll({ announceChange: true });
+        }));
+        let searchTimer = 0;
+        document.getElementById("pipeline-search").addEventListener("input", (event) => {
+          window.clearTimeout(searchTimer);
+          searchTimer = window.setTimeout(() => { state.search = event.target.value; state.page = 1; renderAll({ announceChange: true }); }, 120);
+        });
+        document.getElementById("reset-filters").addEventListener("click", resetState);
+        document.querySelectorAll("[data-tab]").forEach((link) => link.addEventListener("click", () => { state.tab = link.dataset.tab; writeURLState(); }));
+        window.addEventListener("popstate", () => { readURLState(); populateFilters(); renderAll({ announceChange: true }); });
+      }
+
+      function boot() {
+        try {
+          if (!DATA || !Array.isArray(DATA.pipeline)) throw new Error("The embedded analytics snapshot is invalid.");
+          readURLState();
+          populateFilters();
+          const counts = DATA.meta.record_counts;
+          document.getElementById("snapshot-meta").textContent = `Generated ${formatDate(DATA.meta.generated_at.slice(0, 10))} · ${numberFormat.format(counts.applications)} applications · ${numberFormat.format(counts.events)} lifecycle events · ${escapeHTML(DATA.meta.reporting_timezone)}`;
+          bindStaticEvents();
+          renderAll();
+          announce(`Dashboard ready. ${numberFormat.format(DATA.pipeline.length)} applications loaded.`);
+          const active = document.querySelector(`[data-tab="${CSS.escape(state.tab)}"]`);
+          if (active && window.location.search && !window.location.hash) active.scrollIntoView({ block: "nearest", inline: "nearest" });
+        } catch (error) {
+          console.error(error);
+          document.getElementById("main").innerHTML = `<div class="error-state" role="alert"><h2>Dashboard Could Not Load</h2><p>${escapeHTML(error.message)}</p><button class="button button-primary" type="button" id="reload-dashboard">Reload Dashboard</button></div>`;
+          document.getElementById("reload-dashboard")?.addEventListener("click", () => window.location.reload());
+        }
+      }
+
+      boot();
+    })();
+  </script>
+</body>
+</html>
