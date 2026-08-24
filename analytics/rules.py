@@ -27,7 +27,8 @@ SENIORITIES = (
     "founding",
     "executive",
 )
-GEOGRAPHIES = ("EEA", "Helsinki/Tallinn", "country-of-residence", "office-required")
+GEOGRAPHIES = ("EEA", "US", "Helsinki/Tallinn", "country-of-residence", "office-required")
+EMPLOYMENT_MODELS = ("employee", "b2b", "contractor", "unknown")
 _DIRECT_EVIDENCE = frozenset(("explicit", "observed"))
 
 
@@ -37,6 +38,7 @@ class RuleContext:
     seniority: str
     geography: str
     stage: str
+    employment_model: str
 
 
 @dataclass
@@ -71,35 +73,33 @@ def _confidence(event: Mapping[str, str]) -> Decimal:
     return value
 
 
-def _rule_confidence(evidence: Sequence[Mapping[str, str]]) -> float:
-    direct = [_confidence(item) for item in evidence if item["evidence_tier"] in _DIRECT_EVIDENCE]
+def _activation_result(
+    evidence: Sequence[Mapping[str, str]],
+) -> tuple[bool, float]:
+    activation_evidence = [
+        item for item in evidence if item["rule_effect"] == "activate"
+    ]
+    direct = [
+        _confidence(item)
+        for item in activation_evidence
+        if item["evidence_tier"] in _DIRECT_EVIDENCE
+        and _confidence(item) >= Decimal("0.75")
+    ]
     if direct:
-        return float(max(direct))
+        return True, float(max(direct))
 
     inferred_by_source: dict[str, Mapping[str, str]] = {}
-    for item in sorted(evidence, key=lambda row: (row["occurred_at"], row["feedback_id"])):
+    for item in sorted(
+        activation_evidence,
+        key=lambda row: (row["occurred_at"], row["feedback_id"]),
+    ):
         if item["evidence_tier"] == "inferred":
             inferred_by_source[item["source_ref"]] = item
-    if not inferred_by_source:
-        return 0.0
+    if len(inferred_by_source) < 2:
+        return False, 0.0
     values = [_confidence(item) for item in inferred_by_source.values()]
-    return float(sum(values, Decimal("0")) / len(values))
-
-
-def _qualifies_for_activation(evidence: Sequence[Mapping[str, str]]) -> bool:
-    activation_evidence = [item for item in evidence if item["rule_effect"] == "activate"]
-    if any(
-        item["evidence_tier"] in _DIRECT_EVIDENCE
-        and _confidence(item) >= Decimal("0.75")
-        for item in activation_evidence
-    ):
-        return True
-    inferred_sources = {
-        item["source_ref"]
-        for item in activation_evidence
-        if item["evidence_tier"] == "inferred"
-    }
-    return len(inferred_sources) >= 2
+    confidence = sum(values, Decimal("0")) / len(values)
+    return True, float(confidence)
 
 
 def _rule_id(category: str, scope_json: str, required_action: str) -> str:
@@ -182,11 +182,8 @@ def build_rules(feedback: Iterable[Mapping[str, str]]) -> list[dict[str, object]
                 continue
             seen_evidence.append(item)
             if item["rule_effect"] == "activate":
-                status = (
-                    "active"
-                    if _qualifies_for_activation(seen_evidence)
-                    else "monitor"
-                )
+                active, _ = _activation_result(seen_evidence)
+                status = "active" if active else "monitor"
         latest_evidence = max(
             group.evidence,
             key=lambda item: (item["occurred_at"], item["feedback_id"]),
@@ -207,7 +204,11 @@ def build_rules(feedback: Iterable[Mapping[str, str]]) -> list[dict[str, object]
                 "required_action": group.required_action,
                 "evidence_count": len(group.evidence),
                 "evidence_tiers": sorted({item["evidence_tier"] for item in group.evidence}),
-                "confidence": _rule_confidence(group.evidence),
+                "confidence": (
+                    _activation_result(seen_evidence)[1]
+                    if status == "active"
+                    else 0.0
+                ),
                 "source_feedback_ids": source_feedback_ids,
                 "last_updated": max(item["occurred_at"] for item in timeline),
                 "status": status,
@@ -229,6 +230,7 @@ def select_rules(
         "seniority": context.seniority,
         "geography": context.geography,
         "stage": context.stage,
+        "employment_model": context.employment_model,
     }
     selected: list[dict[str, object]] = []
     for source_rule in rules:
@@ -310,6 +312,11 @@ def _parser() -> argparse.ArgumentParser:
     match.add_argument("--seniority", choices=SENIORITIES, required=True)
     match.add_argument("--geography", choices=GEOGRAPHIES, required=True)
     match.add_argument("--stage", choices=tuple(sorted(STAGES)), required=True)
+    match.add_argument(
+        "--employment-model",
+        choices=EMPLOYMENT_MODELS,
+        required=True,
+    )
     return parser
 
 
@@ -320,7 +327,13 @@ def main() -> None:
     else:
         _match_command(
             args.rules,
-            RuleContext(args.role_family, args.seniority, args.geography, args.stage),
+            RuleContext(
+                args.role_family,
+                args.seniority,
+                args.geography,
+                args.stage,
+                args.employment_model,
+            ),
         )
 
 

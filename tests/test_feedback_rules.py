@@ -58,7 +58,7 @@ class FeedbackRuleGenerationTests(unittest.TestCase):
                 rules = build_rules([event(evidence_tier=evidence_tier)])
                 selected = select_rules(
                     rules,
-                    RuleContext("applied_ai", "senior", "EEA", "application"),
+                    RuleContext("applied_ai", "senior", "EEA", "application", "unknown"),
                 )
                 self.assertEqual(len(selected), 1)
                 self.assertEqual(rules[0]["status"], "active")
@@ -70,7 +70,7 @@ class FeedbackRuleGenerationTests(unittest.TestCase):
         self.assertEqual(
             select_rules(
                 rules,
-                RuleContext("applied_ai", "senior", "EEA", "application"),
+                RuleContext("applied_ai", "senior", "EEA", "application", "unknown"),
             ),
             [],
         )
@@ -105,6 +105,49 @@ class FeedbackRuleGenerationTests(unittest.TestCase):
         active = build_rules([second, first])[0]
         self.assertEqual(active["status"], "active")
         self.assertEqual(active["confidence"], 0.8)
+
+    def test_monitor_evidence_does_not_inflate_active_confidence(self):
+        rules = build_rules([
+            event(
+                feedback_id="fb-active",
+                confidence="0.8",
+                source_ref="source-active",
+            ),
+            event(
+                feedback_id="fb-monitor",
+                occurred_at="2026-08-01T12:00:00Z",
+                rule_effect="monitor",
+                confidence="1.0",
+                source_ref="source-monitor",
+            ),
+        ])
+        self.assertEqual(rules[0]["status"], "active")
+        self.assertEqual(rules[0]["confidence"], 0.8)
+
+    def test_qualifying_inferred_confidence_excludes_low_direct_evidence(self):
+        rules = build_rules([
+            event(
+                feedback_id="fb-low-direct",
+                confidence="0.7",
+                source_ref="source-direct",
+            ),
+            event(
+                feedback_id="fb-inferred-a",
+                occurred_at="2026-08-01T12:00:00Z",
+                evidence_tier="inferred",
+                confidence="0.8",
+                source_ref="source-inferred-a",
+            ),
+            event(
+                feedback_id="fb-inferred-b",
+                occurred_at="2026-08-02T12:00:00Z",
+                evidence_tier="inferred",
+                confidence="0.9",
+                source_ref="source-inferred-b",
+            ),
+        ])
+        self.assertEqual(rules[0]["status"], "active")
+        self.assertEqual(rules[0]["confidence"], 0.85)
 
     def test_grouping_canonicalizes_scope_and_sorts_source_ids(self):
         rules = build_rules([
@@ -158,6 +201,7 @@ class FeedbackRuleGenerationTests(unittest.TestCase):
         ]
         rules = build_rules(events)
         self.assertEqual(rules[0]["status"], "resolved")
+        self.assertEqual(rules[0]["confidence"], 0.0)
         self.assertEqual(
             rules[0]["source_feedback_ids"],
             ["fb-open", "fb-resolved"],
@@ -166,7 +210,7 @@ class FeedbackRuleGenerationTests(unittest.TestCase):
         self.assertEqual(
             select_rules(
                 rules,
-                RuleContext("applied_ai", "senior", "EEA", "application"),
+                RuleContext("applied_ai", "senior", "EEA", "application", "unknown"),
             ),
             [],
         )
@@ -184,10 +228,12 @@ class FeedbackRuleGenerationTests(unittest.TestCase):
             event(
                 feedback_id="fb-reopened",
                 occurred_at="2026-08-02T12:00:00Z",
+                confidence="0.8",
                 source_ref="source-reopened",
             ),
         ])
         self.assertEqual(rules[0]["status"], "active")
+        self.assertEqual(rules[0]["confidence"], 0.8)
         self.assertEqual(rules[0]["last_updated"], "2026-08-02T12:00:00Z")
 
     def test_resolved_evidence_does_not_activate_a_later_weak_signal(self):
@@ -208,6 +254,7 @@ class FeedbackRuleGenerationTests(unittest.TestCase):
             ),
         ])
         self.assertEqual(rules[0]["status"], "monitor")
+        self.assertEqual(rules[0]["confidence"], 0.0)
 
     def test_unknown_resolution_target_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "unknown feedback_id"):
@@ -248,7 +295,7 @@ class FeedbackRuleSelectionTests(unittest.TestCase):
                 feedback_id="fb-all",
                 category="technical_depth",
                 required_action="Use scoped technical evidence.",
-                scope='{"geography":"EEA","role_family":"applied_ai","seniority":"senior","stage":"application"}',
+                scope='{"employment_model":"employee","geography":"EEA","role_family":"applied_ai","seniority":"senior","stage":"application"}',
                 source_ref="source-all",
             ),
             event(
@@ -261,15 +308,15 @@ class FeedbackRuleSelectionTests(unittest.TestCase):
             event(
                 feedback_id="fb-unsupported-dimension",
                 category="logistics_work_authorization",
-                required_action="Check employment model.",
-                scope='{"employment_model":"employee","stage":"application"}',
+                required_action="Check employment region.",
+                scope='{"employment_region":"employee","stage":"application"}',
                 source_ref="source-unsupported",
             ),
         ])
 
         selected = select_rules(
             rules,
-            RuleContext("applied_ai", "senior", "EEA", "application"),
+            RuleContext("applied_ai", "senior", "EEA", "application", "employee"),
         )
         self.assertEqual(
             {rule["source_feedback_ids"][0] for rule in selected},
@@ -278,7 +325,14 @@ class FeedbackRuleSelectionTests(unittest.TestCase):
         self.assertEqual(
             select_rules(
                 rules,
-                RuleContext("ai_platform", "senior", "EEA", "application"),
+                RuleContext("applied_ai", "senior", "EEA", "application", "b2b"),
+            )[0]["source_feedback_ids"],
+            ["fb-global"],
+        )
+        self.assertEqual(
+            select_rules(
+                rules,
+                RuleContext("ai_platform", "senior", "EEA", "application", "employee"),
             )[0]["source_feedback_ids"],
             ["fb-global"],
         )
@@ -290,7 +344,13 @@ class FeedbackRuleSelectionTests(unittest.TestCase):
         self.assertEqual(
             select_rules(
                 [resolved, monitor, active],
-                RuleContext("applied_ai", "senior", "EEA", "application"),
+                RuleContext(
+                    "applied_ai",
+                    "senior",
+                    "EEA",
+                    "application",
+                    "unknown",
+                ),
             ),
             [active],
         )
@@ -337,9 +397,11 @@ class FeedbackRuleCliTests(unittest.TestCase):
                 "--seniority",
                 "senior",
                 "--geography",
-                "EEA",
+                "US",
                 "--stage",
                 "application",
+                "--employment-model",
+                "unknown",
             ]
             outputs = []
             for _ in range(2):
@@ -356,12 +418,14 @@ class FeedbackRuleCliTests(unittest.TestCase):
             "--seniority": "senior",
             "--geography": "EEA",
             "--stage": "application",
+            "--employment-model": "unknown",
         }
         invalid = {
             "--role-family": "Applied AI",
             "--seniority": "Senior Engineer",
             "--geography": "Europe",
             "--stage": "Application Stage",
+            "--employment-model": "full-time",
         }
         for option, value in invalid.items():
             with self.subTest(option=option):
