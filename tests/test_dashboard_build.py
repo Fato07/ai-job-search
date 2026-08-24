@@ -122,9 +122,10 @@ class DashboardBuildTests(unittest.TestCase):
         self.assertEqual(
             set(snapshot),
             {
-                "meta", "today", "funnel", "daily_series", "weekly_cohorts",
-                "response_metrics", "calibration", "feedback", "pipeline",
-                "data_quality", "filters",
+                "meta", "today", "funnel", "lifecycle_application_ids",
+                "daily_series", "weekly_cohorts", "response_metrics",
+                "calibration", "feedback", "pipeline", "data_quality",
+                "filters",
             },
         )
         self.assertEqual(snapshot["meta"]["generated_at"], "2026-08-24T00:00:00Z")
@@ -141,6 +142,15 @@ class DashboardBuildTests(unittest.TestCase):
         })
         self.assertEqual(snapshot["funnel"]["screened"], 2)
         self.assertEqual(snapshot["funnel"]["submitted"], 1)
+        self.assertEqual(snapshot["lifecycle_application_ids"], {
+            "discovered": ["app-1", "app-2"],
+            "screened": ["app-1", "app-2"],
+            "qualified": ["app-2"],
+            "submitted": ["app-1"],
+            "responded": [],
+            "interviewed": [],
+            "offered": [],
+        })
 
     def test_funnel_timing_and_medians_use_deduplicated_lifecycle_events(self):
         applications = [application(f"app-{number}", 95 - number) for number in range(1, 8)]
@@ -198,6 +208,7 @@ class DashboardBuildTests(unittest.TestCase):
             "date": "2026-08-24", "discovered": 0, "screened": 0,
             "qualified": 0, "submitted": 0, "responded": 0,
             "interviewed": 0, "offered": 0,
+            "submitted_application_ids": [],
         }])
 
     def test_outcomes_before_submission_do_not_count_as_conversion(self):
@@ -244,10 +255,42 @@ class DashboardBuildTests(unittest.TestCase):
             "date": "2026-08-24", "discovered": 0, "screened": 0,
             "qualified": 0, "submitted": 1, "responded": 0,
             "interviewed": 0, "offered": 0,
+            "submitted_application_ids": ["app-1"],
         }])
         self.assertEqual(snapshot["weekly_cohorts"][0]["week_start"], "2026-08-24")
         self.assertEqual(snapshot["pipeline"][0]["application_date"], "2026-08-24")
         self.assertEqual(snapshot["meta"]["reporting_timezone"], "Europe/Tallinn")
+
+    def test_daily_series_preserves_zero_days_and_submitted_membership(self):
+        events = [
+            event("s-1", "app-1", "submitted", "2026-08-20T08:00:00Z"),
+            event("s-2", "app-2", "submitted", "2026-08-22T08:00:00Z"),
+        ]
+
+        series = self.build(events=events, feedback=[], rules=[])["daily_series"]
+
+        self.assertEqual(
+            [row["date"] for row in series],
+            ["2026-08-20", "2026-08-21", "2026-08-22", "2026-08-23", "2026-08-24"],
+        )
+        self.assertEqual(series[0]["submitted_application_ids"], ["app-1"])
+        self.assertEqual(series[1]["submitted"], 0)
+        self.assertEqual(series[1]["submitted_application_ids"], [])
+        self.assertEqual(series[2]["submitted_application_ids"], ["app-2"])
+        self.assertEqual(series[-1]["submitted"], 0)
+
+    def test_fit_band_calibration_counts_match_lifecycle_membership(self):
+        snapshot = self.build()
+        by_band = {row["value"]: row for row in snapshot["calibration"]["fit_band"]}
+        submitted_ids = set(snapshot["lifecycle_application_ids"]["submitted"])
+        app_ids_by_band = {
+            "90-100": {"app-1"},
+            "80-89": {"app-2"},
+        }
+
+        for band, application_ids in app_ids_by_band.items():
+            with self.subTest(band=band):
+                self.assertEqual(by_band[band]["submitted"], len(application_ids & submitted_ids))
 
     def test_invalid_reporting_timezone_fails_precisely(self):
         with self.assertRaisesRegex(ValueError, "invalid reporting_timezone: 'Mars/Olympus'"):
@@ -381,6 +424,34 @@ class DashboardBuildTests(unittest.TestCase):
         self.assertEqual(quality["application_ids"]["stale_rows"], ["app-old"])
         self.assertEqual(quality["application_ids"]["orphaned_events"], [])
 
+    def test_review_queue_preserves_linked_and_unmapped_items(self):
+        review_items = [
+            {
+                "review_id": "review-linked",
+                "application_id": "app-1",
+                "status": "pending",
+                "company": "Alpha",
+                "role": "Applied AI Engineer",
+                "reason": "Confirm the Gmail match.",
+            },
+            {
+                "review_id": "review-global",
+                "status": "pending",
+                "company": "Unknown",
+                "role": "Unknown",
+                "reason": "Resolve without an application ID.",
+            },
+        ]
+
+        quality = self.build(review_items=review_items)["data_quality"]
+
+        self.assertEqual(quality["review_queue"]["count"], 2)
+        self.assertEqual(
+            [item["application_id"] for item in quality["review_queue"]["items"]],
+            ["", "app-1"],
+        )
+        self.assertEqual(quality["application_ids"]["review_queue"], ["app-1"])
+
     def test_render_is_deterministic_html_safe_and_self_contained(self):
         template = "<html><script>window.DATA=__DASHBOARD_DATA__</script></html>"
 
@@ -454,6 +525,11 @@ class DashboardBuildTests(unittest.TestCase):
         self.assertIn('data-application-id=', lowered)
         self.assertIn("cadence interval", lowered)
         self.assertIn("weekly", lowered)
+        self.assertIn("axis-line-strong", lowered)
+        self.assertIn("full continuous range", lowered)
+        self.assertIn('class="quality-targets"', lowered)
+        self.assertIn('data-focus-target=', lowered)
+        self.assertIn("<strong>category:</strong>", lowered)
 
     def test_generated_dashboard_embeds_snapshot_without_external_dependencies(self):
         template_path = Path(__file__).parents[1] / "dashboard" / "template.html"
@@ -468,6 +544,8 @@ class DashboardBuildTests(unittest.TestCase):
         self.assertIn('"evidence_excerpt":"The metric omitted its denominator."', rendered)
         self.assertIn('"required_action":"State the denominator and source."', rendered)
         self.assertIn('"application_ids":{"follow_ups":[],"rejected_by_gate":[],"screened":["app-1","app-2"],"submitted":["app-1"]}', rendered)
+        self.assertIn('"lifecycle_application_ids":', rendered)
+        self.assertIn('"submitted_application_ids":["app-1"]', rendered)
         self.assertNotRegex(rendered.casefold(), r'(?:src|href)\s*=\s*["\']https?://')
         self.assertNotRegex(rendered.casefold(), r'url\(\s*["\']?https?://')
         self.assertIn("Dashboard ready", rendered)

@@ -372,7 +372,11 @@ def _series_row(
             for application_id, timestamps in outcome_times[outcome].items()
             if any(_operational_date(timestamp, reporting_zone) == day for timestamp in timestamps)
         }
-    return {"date": day.isoformat(), **{name: len(sets[name]) for name in _EVENT_TYPES}}
+    return {
+        "date": day.isoformat(),
+        **{name: len(sets[name]) for name in _EVENT_TYPES},
+        "submitted_application_ids": sorted(sets["submitted"]),
+    }
 
 
 def _daily_series(
@@ -660,6 +664,7 @@ def _review_queue(review_items: Sequence[Mapping[str, object]]) -> dict[str, obj
         "items": [
             {
                 "review_id": _text(row.get("review_id")),
+                "application_id": _text(row.get("application_id")),
                 "occurred_at": _text(row.get("occurred_at")) or None,
                 "company": _text(row.get("company")),
                 "role": _text(row.get("role")),
@@ -912,6 +917,10 @@ def build_snapshot(
             },
         },
         "funnel": {name: len(outcomes[name]) for name in _EVENT_TYPES},
+        "lifecycle_application_ids": {
+            name: sorted(outcomes[name])
+            for name in _EVENT_TYPES
+        },
         "daily_series": _daily_series(
             normalized_events,
             outcome_times,
