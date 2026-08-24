@@ -335,6 +335,49 @@ class GmailReconciliationTests(unittest.TestCase):
             with self.subTest(secret=secret):
                 self.assertFalse(any(secret in value for value in held_text))
 
+    def test_short_and_symbol_leading_unambiguous_secrets_scrub_in_every_external_field(self):
+        forms = (
+            ("PIN is 123", "123"),
+            ("OTP is 7", "7"),
+            ("access token: $x", "$x"),
+        )
+        placements = (
+            ("subject", "subject", "Application update {assignment}"),
+            ("sender", "sender", "ExampleCo Talent {assignment}"),
+            ("messageTimestamp", "occurred_at", "{assignment}"),
+            ("messageText", "excerpt", "We will not progress. {assignment}"),
+            ("company", "company", "ExampleCo {assignment}"),
+            ("role", "role", "Platform Engineer {assignment}"),
+        )
+        for assignment, secret in forms:
+            for source_field, held_field, template in placements:
+                with self.subTest(assignment=assignment, field=held_field):
+                    message = {
+                        "subject": "Application update",
+                        "sender": "ExampleCo Talent",
+                        "messageTimestamp": "2026-08-24T10:00:00Z",
+                        "messageText": "We will not progress.",
+                        "messageId": f"fixture-short-secret-{source_field}-{len(secret)}",
+                        "company": "ExampleCo",
+                        "role": "Platform Engineer",
+                    }
+                    message[source_field] = template.format(assignment=assignment)
+                    signal = classify_message(message)
+                    self.assertNotIn(secret, getattr(signal, held_field))
+
+    def test_short_secret_redaction_preserves_terminal_sentence_punctuation(self):
+        signal = classify_message({
+            "subject": "Application update",
+            "sender": "ExampleCo Talent",
+            "messageTimestamp": "2026-08-24T10:00:00Z",
+            "messageText": "OTP is 7. We will not progress.",
+            "messageId": "fixture-short-secret-punctuation",
+            "company": "ExampleCo",
+            "role": "Platform Engineer",
+        })
+        self.assertIn("OTP [removed]. We will not progress.", signal.excerpt)
+
+
     def test_punctuated_prose_predicate_is_preserved_across_external_text_fields(self):
         signal = classify_message({
             "subject": "Application update. code is reviewed.",

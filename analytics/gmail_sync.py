@@ -118,7 +118,7 @@ _SENSITIVE_VALUE = re.compile(
     r"(?i)\b(?P<label>verification\s+code|access\s+token|one[- ]time\s+(?:code|password)|"
     r"passcode|otp|pin|code|token)\s*"
     r"(?P<separator>[:=#]|\s+-\s+|\s+is\s+)\s*"
-    r"(?P<value>[a-z0-9][a-z0-9._~+/=-]{3,})"
+    r"(?P<value>\S+?)(?P<terminal>[.!?,;]?)(?=\s|$)"
 )
 _PHONE = re.compile(r"(?<!\w)(?:\+?\d[\d ()-]{7,}\d)(?!\w)")
 _WHITESPACE = re.compile(r"\s+")
@@ -135,8 +135,7 @@ _AMBIGUOUS_PROSE_PREDICATES = frozenset(
 
 def _redact_sensitive_value(match: re.Match[str]) -> str:
     label = " ".join(match.group("label").casefold().replace("-", " ").split())
-    value = match.group("value")
-    predicate = value.rstrip(".,;!?").casefold()
+    predicate = match.group("value").casefold()
     separator = match.group("separator").strip().casefold()
     if (
         label not in _UNAMBIGUOUS_SECRET_LABELS
@@ -144,8 +143,7 @@ def _redact_sensitive_value(match: re.Match[str]) -> str:
         and predicate in _AMBIGUOUS_PROSE_PREDICATES
     ):
         return match.group(0)
-    trailing_punctuation = value[len(value.rstrip(".,;!?")) :]
-    return f"{match.group('label')} [removed]{trailing_punctuation}"
+    return f"{match.group('label')} [removed]{match.group('terminal')}"
 
 
 _REJECTION_PATTERNS = (
