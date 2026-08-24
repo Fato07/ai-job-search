@@ -21,16 +21,29 @@ from analytics.model import (
 _SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])(?:\s+|$)|\n+")
 _ISO_DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 _REJECTION_EVIDENCE = re.compile(
-    r"\brejected by\b"
+    r"(?:^|:\s)rejected by\b"
     r"|\brejection (?:email )?(?:was )?received\b"
-    r"|\b(?:application|submission|candidate|candidacy) "
-    r"(?:was |has been )?rejected\b"
+    r"|\b(?:application|submission) (?:was |has been )?rejected\b"
+    r"|\b(?:candidate|candidacy) (?:was |has been )rejected\b"
     r"|\b(?:hiring )?(?:team|company|employer|recruiter) rejected "
     r"(?:the |your )?(?:application|submission|candidate|candidacy)\b"
-    r"|\b(?:will not|won't|did not|does not) (?:move forward|proceed) "
+    r"|\b(?:hiring )?(?:team|company|employer|recruiter) "
+    r"(?:will not|won't|did not|does not) (?:move forward|proceed) "
     r"with (?:the |your )?(?:application|submission|candidate|candidacy)\b"
-    r"|\b(?:application|submission|candidate|candidacy) "
+    r"|\b(?:application|submission|candidacy) "
     r"(?:will not|won't|did not|does not) (?:move forward|proceed)\b",
+    re.IGNORECASE,
+)
+_REJECTION_NEGATIVE_CONTEXT = re.compile(
+    r"\b(?:no|neither) (?:application|submission|candidate|candidacy)\b"
+    r".{0,40}\brejected\b"
+    r"|\bnot rejected\b"
+    r"|\b(?:candidate|applicant|i|we) rejected "
+    r"(?:the |an )?(?:offer|role|position)\b"
+    r"|\b(?:offer|role|position) (?:was )?rejected by "
+    r"(?:the )?(?:candidate|applicant|me|us)\b"
+    r"|\b(?:candidate|applicant|i|we) "
+    r"(?:declined|withdrew|withdraws?|will not proceed|won't proceed|did not proceed)\b",
     re.IGNORECASE,
 )
 _VIEWED_EVIDENCE = re.compile(
@@ -147,9 +160,17 @@ def _note_events(
         sentence = sentence.strip()
         if not sentence or _ISO_DATE.search(sentence) is None:
             continue
-        sentence_is_rejection = _REJECTION_EVIDENCE.search(sentence) is not None
+        sentence_has_rejection_negative = (
+            _REJECTION_NEGATIVE_CONTEXT.search(sentence) is not None
+        )
+        sentence_is_rejection = (
+            _REJECTION_EVIDENCE.search(sentence) is not None
+            and not sentence_has_rejection_negative
+        )
         for event_type, pattern in _NOTE_EVENT_PATTERNS:
             if event_type == "received" and sentence_is_rejection:
+                continue
+            if event_type == "rejected" and sentence_has_rejection_negative:
                 continue
             phrase = pattern.search(sentence)
             if phrase is None:

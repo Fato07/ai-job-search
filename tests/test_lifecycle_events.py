@@ -57,6 +57,29 @@ class LifecycleEventTests(unittest.TestCase):
             ],
         )
 
+    def test_candidate_direction_and_negation_are_not_employer_rejections(self):
+        notes = (
+            "Candidate rejected the offer 2026-08-21.",
+            "I will not proceed with the application 2026-08-21.",
+            "No candidate was rejected 2026-08-21.",
+        )
+        for index, note in enumerate(notes):
+            with self.subTest(note=note):
+                application = {
+                    "application_id": f"app-{index}",
+                    "discovered_at": "2026-08-20",
+                    "submitted_at": "",
+                    "status_updated_at": "2026-08-20",
+                    "stage": "prospect",
+                    "status": "OPEN",
+                    "notes": note,
+                }
+                events = backfill_events([application], NOW)
+                self.assertEqual(
+                    [event["event_type"] for event in events],
+                    ["discovered"],
+                )
+
     def test_dated_note_event_requires_phrase_and_date_in_same_sentence(self):
         application = {
             "application_id": "app-1",
