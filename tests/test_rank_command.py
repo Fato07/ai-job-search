@@ -10,6 +10,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from analytics.model import TRACKER_COLUMNS
 
 try:
     import yaml  # noqa: F401 - only probing availability for the lint integration test
@@ -48,6 +49,11 @@ class RankCommandSpec(unittest.TestCase):
             first_line.startswith("# /rank"),
             f"header must start with '# /rank' (lint_skills.py enforces it), got: {first_line!r}",
         )
+    def test_tracker_exclusion_reader_names_the_canonical_schema(self):
+        text = COMMAND.read_text(encoding="utf-8")
+        self.assertIn(",".join(TRACKER_COLUMNS), text)
+        self.assertIn("`application_id`", text)
+
 
     def test_step4_persists_gaps_and_strengths(self):
         sections = _sections(COMMAND.read_text(encoding="utf-8"))

@@ -12,6 +12,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from analytics.model import TRACKER_COLUMNS
 
 try:
     import yaml  # noqa: F401 - only probing availability for the lint integration test
@@ -63,14 +64,20 @@ class OutcomeFollowupBranchSpec(unittest.TestCase):
             text,
             "spec lost the cap that stops the follow-up branch from nagging indefinitely",
         )
-
-    def test_threshold_contrast_with_gmail_sync_documented(self):
+    def test_threshold_is_distinct_from_configurable_stale_warning(self):
         text = COMMAND.read_text(encoding="utf-8")
         self.assertIn(
-            "30-day staleness flag",
+            "configurable stale-application warning",
             text,
-            "spec lost the rationale for the 10-day nudge vs /gmail-sync's 30-day alarm",
+            "the follow-up nudge and analytics stale warning must remain distinct",
         )
+    def test_outcome_updates_the_canonical_tracker_lifecycle_fields(self):
+        text = COMMAND.read_text(encoding="utf-8")
+        self.assertIn(",".join(TRACKER_COLUMNS), text)
+        for field in ("application_id", "submitted_at", "stage", "status_updated_at"):
+            self.assertIn(f"`{field}`", text)
+        self.assertNotIn("append `,deadline` to the header line", text)
+
 
     @unittest.skipUnless(
         _HAVE_YAML,

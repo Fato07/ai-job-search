@@ -12,6 +12,7 @@ writing anything, not in its closing notes.
 import re
 import unittest
 from pathlib import Path
+import subprocess
 
 REPO = Path(__file__).resolve().parent.parent
 README = REPO / "README.md"
@@ -79,6 +80,54 @@ class TestSetupChecksOriginBeforeWriting(unittest.TestCase):
             text[max(0, preflight_at - 2000) : preflight_at + 2000].lower(),
             "the preflight must be about public visibility, not just remote presence",
         )
+
+class TestTrackedAnalyticsPrivacy(unittest.TestCase):
+    def test_personal_analytics_state_is_not_tracked(self):
+        tracked = set(
+            subprocess.run(
+                ["git", "ls-files"],
+                cwd=REPO,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.splitlines()
+        )
+        personal = {
+            "job_search_tracker.csv",
+            "analytics/config.json",
+            "analytics/application_events.csv",
+            "analytics/application_feedback.csv",
+            "analytics/feedback_rules.json",
+            "analytics/reconciliation_review.csv",
+            "analytics/gmail_checkpoint.json",
+            "dashboard/index.html",
+        }
+        self.assertTrue(personal.isdisjoint(tracked), personal & tracked)
+        self.assertIn("analytics/config.example.json", tracked)
+
+    def test_tracked_text_has_no_known_local_identity_or_timezone(self):
+        tracked = subprocess.run(
+            ["git", "ls-files"],
+            cwd=REPO,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+        forbidden = tuple(
+            bytes.fromhex(encoded).decode("utf-8")
+            for encoded in ("66617468696e646f73", "4575726f70652f54616c6c696e6e")
+        )
+        findings = []
+        for relative in tracked:
+            path = REPO / relative
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            for needle in forbidden:
+                if needle.casefold() in text.casefold():
+                    findings.append(f"{relative}: {needle}")
+        self.assertEqual(findings, [])
 
 
 if __name__ == "__main__":

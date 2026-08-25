@@ -1,0 +1,16 @@
+{
+  "successful": true,
+  "data": {
+    "messages": [
+      {
+        "subject": "Application received",
+        "sender": "Aster Labs Talent",
+        "messageTimestamp": "2026-08-22T09:00:00Z",
+        "messageText": "We received your application for the Applied AI Engineer role and will review it shortly.",
+        "messageId": "fixture-inline-confirmation",
+        "company": "Aster Labs",
+        "role": "Applied AI Engineer"
+      }
+    ]
+  }
+}

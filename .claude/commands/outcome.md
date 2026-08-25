@@ -27,18 +27,17 @@ Follow these steps **in order**.
 
 ## Step 1: Load State and Identify the Application
 
-1. Read `job_search_tracker.csv`. If it does not exist, create it with the standard header:
+1. Read `job_search_tracker.csv` through the canonical analytics contract. If it does not exist, create it with this exact header:
+   ```csv
+   application_id,discovered_at,company,sector,role,role_family,role_type,geography,logistics_status,channel,screening_decision,screening_reason,submitted_at,stage,status,status_updated_at,contact_person,fit_score,fit_label,notes,cv_file,cover_letter_file,source,deadline
    ```
-   date,company,sector,role,role_type,channel,status,contact_person,fit_rating,notes,cv_file,cover_letter_file,source,deadline
-   ```
-   **If the file exists and its header does not end in `,deadline`, append `,deadline` to the header line only** - no data row is touched. Legacy rows then read as an empty deadline. This is the one edit to an existing tracker this command may make outside a matched row, and Step 4's "never restructure the CSV" governs that row, not this header line.
-2. **With an argument:** match rows case-insensitively on company (and role, if given). One match → proceed. Several → list them and ask. None → the application was made outside the workflow; collect company, role, date applied, channel, and posting URL from the user and add a tracker row.
-3. **Without an argument:** list all rows whose status is not final (see **Tracker status vocabulary** below) as a numbered table (company, role, date applied, current status, deadline, days quiet, follow-ups sent) and ask which to update. The two derived columns come straight from existing data: **days quiet** counts from the row's `date` or the latest dated entry in `notes`, whichever is more recent; **follow-ups sent** counts the `followed up YYYY-MM-DD` markers in `notes`. If any open row is 10+ days quiet with fewer than two follow-ups sent, add one line under the table: "Some of these have gone quiet - want a follow-up draft? (Step 2b)". If every row is resolved, say so and stop.
+   If the file uses a legacy 13/14-column header or the pre-deadline normalized header, run `python3 -m analytics.migrate job_search_tracker.csv --apply`, then reload it. Use that reviewed migration only: never append or patch a legacy header, never maintain a compatibility writer, and stop if `analytics.model.read_tracker_rows` still rejects it.
+2. **With an argument:** match normalized rows case-insensitively on company (and role, if given). One match → proceed. Several → list stable `application_id` values and ask. None → the application was made outside the workflow; collect company, role, actual submission date, channel, posting URL, and optional deadline. Add a complete canonical row with a `stable_application_id`, `discovered_at` equal to the earliest known discovery date (use the submission date when nothing earlier is known), `submitted_at` equal to the actual submission date, `stage=submitted`, `status=applied`, `status_updated_at` equal to that date, enum defaults (`role_family=other`, `geography=unknown`, `logistics_status=unknown`, `screening_decision=pending`), and empty values for unknown fields.
+3. **Without an argument:** list all rows whose `stage` is not `closed` as a numbered table (`application_id`, company, role, submitted date, current status, deadline, days quiet, follow-ups sent) and ask which to update. **Days quiet** counts from `submitted_at`, `status_updated_at`, or the latest dated entry in `notes`, whichever is most recent; **follow-ups sent** counts `followed up YYYY-MM-DD` markers in `notes`. If any submitted open row is 10+ days quiet with fewer than two follow-ups, offer a Step 2b draft. If every row is closed, say so and stop.
 
-   **`drafted` rows are listed but never counted as quiet** - nothing was sent, so nobody is late replying. List them under their own heading ("Drafted, not yet submitted"), leave **days quiet** and **follow-ups sent** blank, and keep them out of the follow-up offer above.
+   Rows with `stage=drafting` are listed but never counted as quiet. List them under "Drafted, not yet submitted", leave quiet/follow-up cells blank, and keep them out of the follow-up offer.
 
-   **Deadline urgency is the one clock that does apply to a drafted row.** Show the `deadline` column when the row has one and leave it blank otherwise. Mark a deadline within 7 days with 🔥 and one that has already passed with ⚠, on the same 7-day threshold `/rank` Step 3 uses so the two commands never disagree. A passed deadline on a `drafted` row is the failure this column exists to catch - documents written, never sent, and now unsendable - so name it in one line under the table rather than leaving the user to compare dates. This changes nothing about the follow-up offer: a drafted row is still never chased, because nobody is late replying to something that was never sent.
-
+   **Deadline urgency is the one clock that does apply to a drafted row.** Show the `deadline` column when present. Mark a valid deadline within 7 days with 🔥 and a past deadline with ⚠, using `/rank` Step 3's threshold. Unknown deadline is empty; a value that is not an ISO `YYYY-MM-DD` date is invalid and must be fixed rather than guessed. A drafted row is still never chased because nothing was submitted.
 4. Derive the archive folder name: `documents/applications/<company>_<role>/` by the **Subfolder naming** rule in `documents/README.md`. Check whether the folder and an `outcome.md` already exist - if so, you are updating, not creating.
 
 ---
@@ -52,7 +51,7 @@ Canonical spellings for the tracker CSV `status` column (underscores, never spac
 - **Final** (application closed): `hired`, `rejected`, `no_response`, `offer_declined`, `withdrawn`
 - **Open**: everything else, `drafted` included — a row is active until its status is one of the **Final** values.
 - **`drafted`** is open but distinct — nothing was sent, so no follow-up is ever due.
-- Readers must also accept the legacy space spellings `no response` and `offer declined` on read, so that existing trackers keep working without a migration. Never write them — they are the same values as `no_response` and `offer_declined`, not separate statuses, equally **Final**, and every rule that names one applies to the other.
+- The migration reader accepts the legacy space spellings `no response` and `offer declined` and normalizes their lifecycle stage to `closed`. Never write the space forms — they are the same values as `no_response` and `offer_declined`, not separate statuses, equally **Final**.
 
 > Distinct from the archive `Status:` enum in `documents/README.md`
 > (`in_progress` | `hired` | `offer_declined` | `rejected` | `no_response` | `interview_only`),
@@ -87,9 +86,9 @@ Also collect, without interrogating - one or two open questions are enough:
 
 Enter this branch from the `followup` argument (Step 0) or from the offer under the open-pipeline table (Step 1.3). Standard practice is a brief, polite follow-up one to two weeks after applying, at most twice; this branch operationalizes that.
 
-**Candidates.** An application qualifies when its status is neither final nor `drafted`, the threshold has passed since its `date` (or since the last `followed up` marker in `notes`, if any), and it has fewer than **two** logged follow-ups. Parse dates defensively - skip rows whose dates do not parse and say so rather than guessing. Present qualifying applications as a table (company, role, days quiet, follow-ups sent, channel, contact person) and draft only for the ones the user picks.
+**Candidates.** An application qualifies when its stage is neither `closed` nor `drafting`, the threshold has passed since `submitted_at` (or since the latest dated lifecycle/note activity), and it has fewer than **two** logged follow-ups. Parse dates defensively - skip rows whose dates do not parse and say so rather than guessing. Present qualifying applications as a table (company, role, days quiet, follow-ups sent, channel, contact person) and draft only for the ones the user picks.
 
-**Threshold.** The 10-day default is deliberately earlier than `/gmail-sync`'s 30-day staleness flag (its Step 9): that check is a read-only alarm that a row has been forgotten entirely; this branch is the proactive nudge while a reply is still plausible. The two numbers serve different moments, which is why they differ.
+**Threshold.** The 10-day default is a proactive nudge, separate from the dashboard's configurable stale-application warning. Do not conflate the two or change `analytics/config.json`.
 
 **Drafting.** For each selected application:
 
@@ -145,9 +144,23 @@ Update rules: tick stage checkboxes as they are reached (add the date in parenth
 
 ## Step 4: Update the Tracker
 
-Update the matched row's `status` column using the canonical spellings from **Tracker status vocabulary** above (e.g. `drafted` → `applied` → `interview` → `offer` → `hired` / `rejected` / `no_response` / `offer_declined` / `withdrawn`) and append a short dated note to the `notes` column. Never restructure the CSV, reorder rows, or touch other rows. The rewrite touches only the `status` and `notes` columns: preserve every other field of the row, parsed or not, so a value the row carries - the `deadline` written by `/apply` Step 6b, or any column added in the future - is never blanked by a status update.
+Update the matched normalized row using the canonical spellings from **Tracker status vocabulary**:
 
-**Moving a row off `drafted`:** rows written by `/apply` Step 6b carry the date the documents were drafted, not the date they were sent. Whenever this step advances such a row to any other status - `applied`, or straight to `interview` or `rejected` when the user reports an outcome for something they submitted without recording it - overwrite its `date` column with the actual submission date. The `date` column is read as "applied on" by `/notion-sync` and drives `/html-report`'s year/season grouping and this command's own days-quiet count, so leaving the draft date in place would misreport the application.
+- `drafted` → `stage=drafting`
+- `applied` → `stage=submitted`
+- `interview` → `stage=interview`
+- `offer` → `stage=offer`
+- `hired`, `rejected`, `no_response`, `offer_declined`, `withdrawn` → `stage=closed`
+
+Set `status` to the selected canonical value, set `status_updated_at` to the event date, and append a short dated note to `notes`. Preserve the exact stable `application_id` and preserve every other field of the row, including screening/fit data, document paths, source, and `deadline`.
+
+**Moving a row off `drafted`:** set `submitted_at` to the actual submission date supplied by the user. Never overwrite a non-empty `submitted_at`, and never rewrite `discovered_at`; discovery and submission are different events.
+
+Write all 24 fields in canonical order and validate the whole file with `analytics.model.read_tracker_rows`. Never append or patch a legacy header, reorder rows, or update an unrelated row.
+Perform the actual lifecycle change with the shared atomic writer:
+`python3 -m analytics.record transition --application-id <stable-id> --event-type <submitted|follow_up|interview|offer|hired|rejected|no_response|offer_declined|withdrawn> --occurred-on <YYYY-MM-DD> --detail <summary>`.
+This updates the normalized tracker and appends the matching lifecycle event in one journaled transaction. Never write the tracker directly. Run `python3 -m analytics.init` first if local analytics state is missing.
+
 
 ---
 

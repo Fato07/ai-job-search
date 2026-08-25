@@ -1,0 +1,1122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f3eee4">
+  <title>Job Search Command Center</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --paper: oklch(95% 0.014 75);
+      --paper-raised: oklch(98% 0.009 78);
+      --paper-muted: oklch(91% 0.018 72);
+      --ink: oklch(23% 0.016 65);
+      --ink-muted: oklch(47% 0.018 65);
+      --rule: oklch(72% 0.025 68);
+      --rule-strong: oklch(50% 0.028 65);
+      --signal: oklch(61% 0.17 43);
+      --signal-strong: oklch(49% 0.16 39);
+      --signal-soft: oklch(90% 0.05 55);
+      --positive: oklch(48% 0.085 145);
+      --warning: oklch(58% 0.12 70);
+      --danger: oklch(52% 0.13 28);
+      --focus: oklch(58% 0.18 43);
+      --space-1: 0.25rem;
+      --space-2: 0.5rem;
+      --space-3: 0.75rem;
+      --space-4: 1rem;
+      --space-5: 1.5rem;
+      --space-6: 2rem;
+      --space-7: 3rem;
+      --space-8: 4rem;
+      --radius-sm: 0.25rem;
+      --radius-md: 0.5rem;
+      --max: 112rem;
+      --header-height: 4rem;
+      --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      --font-data: ui-monospace, "SFMono-Regular", Consolas, monospace;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --paper: oklch(20% 0.014 65);
+        --paper-raised: oklch(24% 0.016 65);
+        --paper-muted: oklch(28% 0.018 63);
+        --ink: oklch(91% 0.014 75);
+        --ink-muted: oklch(70% 0.018 72);
+        --rule: oklch(40% 0.025 65);
+        --rule-strong: oklch(63% 0.026 68);
+        --signal: oklch(70% 0.17 50);
+        --signal-strong: oklch(78% 0.14 55);
+        --signal-soft: oklch(33% 0.07 43);
+        --positive: oklch(67% 0.11 145);
+        --warning: oklch(75% 0.12 75);
+        --danger: oklch(70% 0.14 30);
+        --focus: oklch(76% 0.16 55);
+      }
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-width: 20rem;
+      overflow-x: hidden;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--font-ui);
+      font-size: 0.9375rem;
+      line-height: 1.5;
+      -webkit-tap-highlight-color: color-mix(in oklch, var(--signal) 22%, transparent);
+    }
+    button, input, select { font: inherit; touch-action: manipulation; }
+    button, a, input, select, summary { min-height: 2.75rem; }
+    a { color: var(--signal-strong); text-underline-offset: 0.18em; }
+    a:hover { color: var(--signal); text-decoration-thickness: 0.14em; }
+    button:hover { border-color: var(--signal); }
+    :focus-visible {
+      outline: 0.1875rem solid var(--focus);
+      outline-offset: 0.1875rem;
+      border-radius: var(--radius-sm);
+    }
+    h1, h2, h3 { margin: 0; line-height: 1.12; text-wrap: balance; }
+    p { text-wrap: pretty; }
+    [id] { scroll-margin-top: calc(var(--header-height) + var(--space-5)); }
+    .tabular, .metric-value, td[data-kind="number"], .chart-table { font-variant-numeric: tabular-nums; }
+    .mono { font-family: var(--font-data); font-size: 0.82em; overflow-wrap: anywhere; }
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    .skip-link {
+      position: fixed;
+      inset-block-start: var(--space-3);
+      inset-inline-start: max(var(--space-3), env(safe-area-inset-left));
+      z-index: 30;
+      transform: translateY(-180%);
+      padding: var(--space-3) var(--space-4);
+      background: var(--ink);
+      color: var(--paper-raised);
+      border: 1px solid var(--paper-raised);
+      text-decoration: none;
+    }
+    .skip-link:focus { transform: translateY(0); }
+    .site-header {
+      padding: max(var(--space-5), env(safe-area-inset-top)) max(var(--space-5), env(safe-area-inset-right)) var(--space-5) max(var(--space-5), env(safe-area-inset-left));
+      border-block-end: 2px solid var(--ink);
+      background: var(--paper-raised);
+    }
+    .header-grid {
+      max-width: var(--max);
+      margin-inline: auto;
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: var(--space-4);
+      align-items: end;
+    }
+    .header-title { grid-column: 1 / 7; min-width: 0; }
+    .eyebrow {
+      margin: 0 0 var(--space-2);
+      color: var(--signal-strong);
+      font-weight: 750;
+      text-transform: uppercase;
+      font-size: 0.75rem;
+    }
+    h1 { max-width: 18ch; font-size: 2rem; font-weight: 760; }
+    .snapshot-meta {
+      grid-column: 7 / -1;
+      margin: 0;
+      color: var(--ink-muted);
+      text-align: right;
+      font-size: 0.8125rem;
+      overflow-wrap: anywhere;
+    }
+    .section-nav {
+      position: sticky;
+      inset-block-start: 0;
+      z-index: 20;
+      display: flex;
+      gap: var(--space-1);
+      min-height: var(--header-height);
+      padding-inline: max(var(--space-5), env(safe-area-inset-left)) max(var(--space-5), env(safe-area-inset-right));
+      overflow-x: auto;
+      border-block-end: 1px solid var(--rule-strong);
+      background: color-mix(in oklch, var(--paper) 94%, transparent);
+    }
+    .section-nav a {
+      display: inline-flex;
+      align-items: center;
+      flex: 0 0 auto;
+      padding-inline: var(--space-4);
+      color: var(--ink-muted);
+      text-decoration: none;
+      font-size: 0.8125rem;
+      font-weight: 700;
+    }
+    .section-nav a:hover, .section-nav a[aria-current="location"] {
+      color: var(--ink);
+      box-shadow: inset 0 -0.1875rem 0 var(--signal);
+    }
+    .filter-deck {
+      border-block-end: 1px solid var(--rule-strong);
+      background: var(--paper-muted);
+    }
+    .filter-inner { max-width: var(--max); margin-inline: auto; padding: var(--space-4); }
+    .filter-disclosure, .filter-disclosure:last-child { border: 0; }
+    .filter-disclosure > summary { display: none; }
+    .filter-heading {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: var(--space-4);
+      margin-block-end: var(--space-3);
+    }
+    .filter-heading h2 { font-size: 1rem; }
+    .filter-heading p { margin: 0; color: var(--ink-muted); font-size: 0.8125rem; }
+    .filters {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(8.5rem, 1fr));
+      gap: var(--space-2) var(--space-3);
+    }
+    .field { display: grid; gap: var(--space-1); min-width: 0; }
+    .field label { color: var(--ink-muted); font-size: 0.75rem; font-weight: 700; }
+    input, select {
+      width: 100%;
+      min-width: 0;
+      min-height: 2.75rem;
+      padding: 0 var(--space-3);
+      border: 1px solid var(--rule-strong);
+      border-radius: var(--radius-sm);
+      background-color: var(--paper-raised);
+      color: var(--ink);
+    }
+    .filter-actions .button { width: 100%; }
+    .filter-actions { display: flex; align-items: end; gap: var(--space-2); }
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 2.75rem;
+      padding: var(--space-2) var(--space-4);
+      border: 1px solid var(--rule-strong);
+      border-radius: var(--radius-sm);
+      background: var(--paper-raised);
+      color: var(--ink);
+      font-weight: 720;
+      cursor: pointer;
+    }
+    .button-primary { border-color: var(--signal-strong); background: var(--signal-strong); color: var(--paper-raised); }
+    .button-primary:hover { background: var(--signal); color: var(--paper-raised); }
+    .button:disabled { cursor: not-allowed; opacity: 0.5; }
+    .link-button {
+      display: inline-flex;
+      align-items: center;
+      min-height: 2.75rem;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--signal-strong);
+      text-align: left;
+      text-decoration: underline;
+      text-underline-offset: 0.18em;
+      cursor: pointer;
+    }
+    .link-button:hover { color: var(--signal); text-decoration-thickness: 0.14em; }
+    main { max-width: var(--max); margin-inline: auto; padding: var(--space-5) var(--space-5) var(--space-8); }
+    .dashboard-section { margin-block-end: var(--space-7); }
+    .section-heading {
+      display: grid;
+      grid-template-columns: minmax(0, 5fr) minmax(16rem, 3fr);
+      gap: var(--space-5);
+      align-items: end;
+      margin-block-end: var(--space-4);
+      padding-block-end: var(--space-3);
+      border-block-end: 2px solid var(--ink);
+    }
+    .section-heading h2 { font-size: 1.55rem; }
+    .section-heading p { margin: 0; color: var(--ink-muted); text-align: right; }
+    .coverage-note, .notice {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: var(--space-3);
+      padding: var(--space-3);
+      border: 1px solid var(--rule-strong);
+      background: var(--signal-soft);
+    }
+    .coverage-note strong { font-size: 0.8125rem; text-transform: uppercase; }
+    #command-kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+    .throughput-bands { display: grid; grid-template-columns: 1fr 1fr; border: 2px solid var(--ink); }
+    .throughput-band { padding: var(--space-4); background: var(--paper-raised); }
+    .throughput-band + .throughput-band { border-inline-start: 1px solid var(--ink); }
+    .band-top { display: flex; justify-content: space-between; gap: var(--space-3); align-items: baseline; }
+    .band-label { margin: 0; color: var(--ink-muted); font-size: 0.8rem; font-weight: 750; text-transform: uppercase; }
+    .band-value { margin: 0; font-size: 1.55rem; font-weight: 760; font-variant-numeric: tabular-nums; }
+    .band-note { margin: var(--space-2) 0 0; color: var(--ink-muted); max-width: 68ch; }
+    .meter { height: 0.5rem; margin-block-start: var(--space-3); background: var(--paper-muted); border: 1px solid var(--rule); }
+    .meter > span { display: block; height: 100%; background: var(--signal); }
+    .ledger-strip {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      margin-block-start: 0;
+      border-block: 1px solid var(--rule-strong);
+    }
+    .ledger-item { min-width: 0; padding: var(--space-2); }
+    .ledger-alert { background: var(--signal-soft); color: var(--signal-strong); }
+    .ledger-item + .ledger-item { border-inline-start: 1px solid var(--rule); }
+    .metric-value { display: block; font-size: 1.35rem; font-weight: 760; }
+    .metric-label { display: block; color: var(--ink-muted); font-size: 0.75rem; overflow-wrap: anywhere; }
+    .next-feedback-action {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: minmax(12rem, 1fr) minmax(0, 3fr) auto;
+      gap: var(--space-4);
+      align-items: center;
+      padding: var(--space-4);
+      border: 2px solid var(--signal-strong);
+      background: var(--signal-soft);
+    }
+    .next-feedback-action p { margin: 0; }
+    .next-action-label {
+      color: var(--signal-strong);
+      font-size: 0.75rem;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .next-action-copy { font-weight: 720; }
+    .next-action-meta { color: var(--ink-muted); font-size: 0.8125rem; }
+    .two-column { display: grid; grid-template-columns: minmax(0, 7fr) minmax(18rem, 5fr); gap: var(--space-6); }
+    .panel { min-width: 0; border-block: 1px solid var(--rule-strong); padding-block: var(--space-4); }
+    .panel h3 { margin-block-end: var(--space-3); font-size: 1rem; }
+    .chart-heading { display: flex; align-items: end; justify-content: space-between; gap: var(--space-3); margin-block-end: var(--space-3); }
+    .chart-heading h3 { margin: 0; }
+    .chart-control { display: grid; gap: var(--space-1); min-width: 9rem; }
+    .chart-control label { color: var(--ink-muted); font-size: 0.75rem; font-weight: 700; }
+    .chart-control select { min-height: 2.75rem; }
+    .chart-shell { min-height: 16rem; }
+    .chart-shell svg { display: block; width: 100%; height: auto; max-height: 24rem; overflow: visible; }
+    .chart-shell .bar-bg { fill: var(--paper-muted); }
+    .chart-shell .bar { fill: var(--signal); }
+    .chart-shell .bar-secondary { fill: var(--ink-muted); }
+    .chart-shell .axis { fill: var(--ink-muted); font-family: var(--font-ui); font-size: 11px; }
+    .chart-shell .value { fill: var(--ink); font-family: var(--font-data); font-size: 11px; font-variant-numeric: tabular-nums; }
+    .chart-shell .line { fill: none; stroke: var(--signal); stroke-width: 3; vector-effect: non-scaling-stroke; }
+    .chart-shell .axis-line { stroke: var(--rule); stroke-width: 1; vector-effect: non-scaling-stroke; }
+    .chart-shell .axis-line-strong { stroke: var(--rule-strong); }
+    .chart-table tbody tr { content-visibility: auto; contain-intrinsic-size: auto 2.5rem; }
+    .chart-shell .dot { fill: var(--signal); stroke: var(--paper-raised); stroke-width: 2; }
+    .chart-table { width: 100%; border-collapse: collapse; margin-block-start: var(--space-4); font-size: 0.8125rem; }
+    .chart-table caption { padding-block-end: var(--space-2); text-align: left; color: var(--ink-muted); }
+    .chart-table th, .chart-table td { padding: var(--space-2); border-block-start: 1px solid var(--rule); text-align: left; }
+    .chart-table td:last-child { text-align: right; }
+    .feedback-summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin-block-end: var(--space-4);
+      border-block: 1px solid var(--rule-strong);
+    }
+    .feedback-summary > div { padding: var(--space-4); }
+    .feedback-summary > div + div { border-inline-start: 1px solid var(--rule); }
+    details { border-block-start: 1px solid var(--rule); }
+    details:last-child { border-block-end: 1px solid var(--rule); }
+    summary {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: var(--space-4);
+      align-items: center;
+      min-width: 0;
+      padding: var(--space-3) var(--space-2);
+      cursor: pointer;
+    }
+    summary:hover { background: var(--paper-muted); }
+    summary::marker { color: var(--signal); }
+    .summary-title { min-width: 0; overflow-wrap: anywhere; font-weight: 720; }
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 1.75rem;
+      padding-inline: var(--space-2);
+      border: 1px solid currentColor;
+      border-radius: 999px;
+      color: var(--ink-muted);
+      font-size: 0.72rem;
+      font-weight: 750;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .status-chip::before { content: "●"; margin-inline-end: var(--space-1); font-size: 0.65em; }
+    .status-active { color: var(--danger); }
+    .status-monitor { color: var(--warning); }
+    .status-resolved { color: var(--positive); }
+    .detail-body { padding: var(--space-2) var(--space-4) var(--space-5); }
+    .detail-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); }
+    .detail-grid dt { color: var(--ink-muted); font-size: 0.75rem; font-weight: 700; }
+    .detail-grid dd { margin: var(--space-1) 0 0; overflow-wrap: anywhere; }
+    .detail-wide { grid-column: 1 / -1; }
+    .evidence-list { margin: 0; padding: 0; list-style: none; border-block: 1px solid var(--rule); }
+    .evidence-list li { padding-block: var(--space-3); }
+    .evidence-list li + li { border-block-start: 1px solid var(--rule); }
+    .evidence-list p { margin: 0 0 var(--space-2); max-width: 75ch; }
+    .table-tools {
+      display: flex;
+      justify-content: space-between;
+      gap: var(--space-4);
+      align-items: end;
+      margin-block-end: var(--space-3);
+    }
+    .search-field { width: min(32rem, 100%); }
+    .table-count { color: var(--ink-muted); white-space: nowrap; }
+    .table-scroll { overflow-x: auto; border: 1px solid var(--rule-strong); background: var(--paper-raised); }
+    .pipeline-table { width: 100%; min-width: 68rem; border-collapse: collapse; }
+    .pipeline-table th, .pipeline-table td { padding: var(--space-3); border-block-end: 1px solid var(--rule); text-align: left; vertical-align: top; }
+    .pipeline-table th { position: sticky; inset-block-start: 0; z-index: 5; background: var(--paper-muted); font-size: 0.75rem; }
+    .pipeline-table tbody tr { content-visibility: auto; contain-intrinsic-size: auto 3.5rem; }
+    .pipeline-table tbody tr:hover { background: var(--paper-muted); }
+    .sort-button {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-1);
+      min-height: 2.75rem;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--ink);
+      font-weight: 750;
+      cursor: pointer;
+    }
+    .sort-button::after { content: "↕"; color: var(--ink-muted); }
+    th[aria-sort="ascending"] .sort-button::after { content: "↑"; color: var(--signal-strong); }
+    th[aria-sort="descending"] .sort-button::after { content: "↓"; color: var(--signal-strong); }
+    .company-cell { max-width: 18rem; }
+    .company-cell strong, .company-cell span { display: block; overflow-wrap: anywhere; }
+    .company-cell span { color: var(--ink-muted); }
+    .row-link { display: inline-flex; align-items: center; white-space: nowrap; }
+    .detail-grid a, .quality-action a { display: inline-flex; align-items: center; min-height: 2.75rem; }
+    .pagination { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding-block-start: var(--space-3); }
+    .pagination-actions { display: flex; gap: var(--space-2); }
+    .quality-list { list-style: none; margin: 0; padding: 0; border-block: 1px solid var(--rule-strong); }
+    .quality-item { display: grid; grid-template-columns: minmax(12rem, 1fr) auto minmax(18rem, 2fr); gap: var(--space-4); align-items: baseline; padding: var(--space-3); }
+    .quality-item + .quality-item { border-block-start: 1px solid var(--rule); }
+    .quality-count { font-family: var(--font-data); font-weight: 760; }
+    .quality-action { text-align: right; overflow-wrap: anywhere; }
+    .quality-targets, .quality-targets:last-child { border: 0; }
+    .quality-targets > summary { display: list-item; min-height: 2.75rem; padding-block: var(--space-2); text-align: left; font-weight: 700; }
+    .quality-target-list { display: grid; gap: var(--space-2); padding-block-end: var(--space-2); text-align: left; }
+    .quality-target { display: grid; justify-items: start; gap: var(--space-1); padding-block: var(--space-2); border-block-start: 1px solid var(--rule); overflow-wrap: anywhere; }
+    .quality-target p { margin: 0; }
+    .empty-state, .error-state {
+      display: grid;
+      justify-items: start;
+      gap: var(--space-3);
+      padding: var(--space-6);
+      border: 1px dashed var(--rule-strong);
+      background: var(--paper-raised);
+    }
+    .empty-state p, .error-state p { margin: 0; max-width: 65ch; color: var(--ink-muted); }
+    .footer-note { padding: var(--space-5) max(var(--space-5), env(safe-area-inset-right)) max(var(--space-5), env(safe-area-inset-bottom)) max(var(--space-5), env(safe-area-inset-left)); border-block-start: 1px solid var(--rule-strong); color: var(--ink-muted); font-size: 0.8125rem; }
+    .footer-note p { max-width: var(--max); margin: 0 auto; }
+    #status {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    @media (max-width: 72rem) {
+      #command-kpis { display: block; }
+      .ledger-strip { margin-block-start: var(--space-3); }
+      .next-feedback-action { margin-block-start: var(--space-3); }
+      .filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .ledger-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .ledger-item:nth-child(5) { border-inline-start: 0; }
+      .ledger-item:nth-child(n+5) { border-block-start: 1px solid var(--rule); }
+      .two-column { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+      .two-column > * { grid-column: span 3; }
+    }
+    @media (max-width: 45rem) {
+      :root { --header-height: 5.5rem; }
+      .site-header { padding-block: var(--space-5); }
+      .header-grid, .section-heading { grid-template-columns: 1fr; }
+      .header-title, .snapshot-meta { grid-column: 1; text-align: left; }
+      h1 { font-size: 1.75rem; }
+      .section-nav {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0;
+        padding-inline: max(var(--space-2), env(safe-area-inset-left)) max(var(--space-2), env(safe-area-inset-right));
+        overflow: visible;
+      }
+      .section-nav a { justify-content: center; min-width: 0; padding-inline: var(--space-1); text-align: center; }
+      .filter-inner { padding: 0 max(var(--space-4), env(safe-area-inset-left)); }
+      .filter-disclosure > summary {
+        display: list-item;
+        min-height: 3.5rem;
+        padding: var(--space-3) 0;
+        font-weight: 750;
+        cursor: pointer;
+      }
+      #filter-active-count { float: right; }
+      .filter-disclosure[open] > summary { border-block-end: 1px solid var(--rule-strong); }
+      .filter-heading { align-items: start; flex-direction: column; padding-block-start: var(--space-4); }
+      .filters { grid-template-columns: 1fr; padding-block-end: var(--space-4); }
+      .filter-actions { align-items: stretch; }
+      .filter-actions .button { flex: 1; }
+      main { padding-inline: max(var(--space-4), env(safe-area-inset-left)); padding-block-start: var(--space-6); }
+      .section-heading p { text-align: left; }
+      .throughput-bands, .two-column { grid-template-columns: 1fr; }
+      .throughput-band + .throughput-band { border-inline-start: 0; border-block-start: 1px solid var(--ink); }
+      .two-column > * { grid-column: 1; }
+      .ledger-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .ledger-item:nth-child(odd) { border-inline-start: 0; }
+      .ledger-item:nth-child(even) { border-inline-start: 1px solid var(--rule); }
+      .ledger-item:nth-child(n+3) { border-block-start: 1px solid var(--rule); }
+      .next-feedback-action { grid-template-columns: 1fr; }
+      .feedback-summary { grid-template-columns: 1fr; }
+      .feedback-summary > div + div { border-inline-start: 0; border-block-start: 1px solid var(--rule); }
+      summary { grid-template-columns: minmax(0, 1fr) auto; }
+      summary .mono { grid-column: 1 / -1; }
+      .detail-grid { grid-template-columns: 1fr; }
+      .chart-heading { align-items: stretch; flex-direction: column; }
+      .table-tools { align-items: stretch; flex-direction: column; }
+      .search-field { width: 100%; }
+      .quality-item { grid-template-columns: 1fr auto; }
+      .quality-action { grid-column: 1 / -1; text-align: left; }
+      .pagination { align-items: stretch; flex-direction: column; }
+      .pagination-actions .button { flex: 1; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to analytics</a>
+  <header class="site-header">
+    <div class="header-grid">
+      <div class="header-title">
+        <p class="eyebrow">Application Intelligence</p>
+        <h1>Job Search Command Center</h1>
+      </div>
+      <p id="snapshot-meta" class="snapshot-meta tabular">Loading snapshot…</p>
+    </div>
+  </header>
+  <nav aria-label="Dashboard sections" class="section-nav">
+    <a href="#command-center" data-tab="today">Today</a>
+    <a href="#funnel" data-tab="funnel">Funnel</a>
+    <a href="#calibration" data-tab="calibration">Calibration</a>
+    <a href="#feedback" data-tab="feedback">Feedback</a>
+    <a href="#pipeline" data-tab="pipeline">Pipeline</a>
+    <a href="#data-quality" data-tab="quality">Data Quality</a>
+  </nav>
+
+  <aside class="filter-deck" aria-labelledby="filters-heading">
+    <div class="filter-inner">
+      <details id="filter-disclosure" class="filter-disclosure" open>
+        <summary><span>Filters</span><span id="filter-active-count" class="tabular">0 active</span></summary>
+      <div class="filter-heading">
+        <h2 id="filters-heading">Shared Filters</h2>
+        <p id="filter-scope">Every view uses the same application set.</p>
+      </div>
+      <form id="filters" class="filters" autocomplete="off">
+        <div class="field"><label for="date-start">From Date</label><input id="date-start" name="date_start" type="date"></div>
+        <div class="field"><label for="date-end">To Date</label><input id="date-end" name="date_end" type="date"></div>
+        <div class="field"><label for="role-family">Role Family</label><select id="role-family" name="role_family"><option value="">All Role Families</option></select></div>
+        <div class="field"><label for="geography">Geography</label><select id="geography" name="geography"><option value="">All Geographies</option></select></div>
+        <div class="field"><label for="channel">Channel</label><select id="channel" name="channel"><option value="">All Channels</option></select></div>
+        <div class="field"><label for="stage">Stage</label><select id="stage" name="stage"><option value="">All Stages</option></select></div>
+        <div class="field"><label for="fit-band">Fit Band</label><select id="fit-band" name="fit_band"><option value="">All Fit Bands</option></select></div>
+        <div class="field"><label for="evidence-tier">Evidence Tier</label><select id="evidence-tier" name="evidence_tier"><option value="">All Evidence Tiers</option></select></div>
+        <div class="field"><label for="feedback-category">Feedback Category</label><select id="feedback-category" name="feedback_category"><option value="">All Feedback Categories</option></select></div>
+        <div class="field"><label for="logistics-status">Logistics Status</label><select id="logistics-status" name="logistics_status"><option value="">All Logistics Statuses</option></select></div>
+        <div class="field"><label for="seniority">Seniority</label><select id="seniority" name="seniority"><option value="">All Seniority Levels</option></select></div>
+        <div class="filter-actions"><button class="button" id="reset-filters" type="button">Reset Filters</button></div>
+      </form>
+      </details>
+    </div>
+  </aside>
+
+  <main id="main" tabindex="-1">
+    <section id="command-center" class="dashboard-section" aria-labelledby="command-title">
+      <div class="section-heading"><h2 id="command-title">Today</h2><p>Capacity, readiness, and review pressure at a glance.</p></div>
+      <div id="coverage-note"></div>
+      <div id="command-kpis"></div>
+    </section>
+
+    <section id="funnel" class="dashboard-section" aria-labelledby="funnel-title">
+      <div class="section-heading"><h2 id="funnel-title">Funnel &amp; Velocity</h2><p>Recorded lifecycle volume and submission cadence for the visible set.</p></div>
+      <div class="two-column">
+        <div class="panel"><h3>Recorded Funnel</h3><div id="funnel-chart" class="chart-shell"></div></div>
+        <div class="panel"><div class="chart-heading"><h3>Submission Cadence</h3><div class="chart-control"><label for="cadence-granularity">Cadence Interval</label><select id="cadence-granularity" name="cadence"><option value="daily">Daily</option><option value="weekly">Weekly</option></select></div></div><div id="time-series-chart" class="chart-shell"></div></div>
+      </div>
+    </section>
+
+    <section id="calibration" class="dashboard-section" aria-labelledby="calibration-title">
+      <div class="section-heading"><h2 id="calibration-title">Fit Calibration</h2><p>Submission progression by fit band, with denominators kept visible.</p></div>
+      <div id="calibration-chart" class="chart-shell"></div>
+    </section>
+
+    <section id="feedback" class="dashboard-section" aria-labelledby="feedback-title">
+      <div class="section-heading"><h2 id="feedback-title">Feedback Intelligence</h2><p>Trace active rules back to the applications that supplied evidence.</p></div>
+      <div class="panel"><h3>Feedback Categories</h3><div id="feedback-category-chart" class="chart-shell"></div></div>
+      <div id="feedback-list"></div>
+    </section>
+
+    <section id="pipeline" class="dashboard-section" aria-labelledby="pipeline-title">
+      <div class="section-heading"><h2 id="pipeline-title">Pipeline Explorer</h2><p>Search, sort, and open the source record without leaving context.</p></div>
+      <div class="panel"><h3>Pipeline Aging</h3><div id="aging-chart" class="chart-shell"></div></div>
+      <div class="table-tools">
+        <div class="field search-field"><label for="pipeline-search">Search Pipeline</label><input id="pipeline-search" name="search" type="search" placeholder="Company, role, status, or application ID…" autocomplete="off"></div>
+        <p id="pipeline-count" class="table-count tabular"></p>
+      </div>
+      <div id="pipeline-table"></div>
+      <div id="pipeline-pagination" class="pagination"></div>
+    </section>
+
+    <section id="data-quality" class="dashboard-section" aria-labelledby="quality-title">
+      <div class="section-heading"><h2 id="quality-title">Data Quality</h2><p>Coverage gaps and records that need an explicit review.</p></div>
+      <div id="quality-list"></div>
+    </section>
+  </main>
+
+  <footer class="footer-note"><p>This is a local snapshot. Source links open only when selected; the dashboard itself makes no network requests.</p></footer>
+  <div id="status" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <noscript><p class="error-state">JavaScript is required to explore this embedded snapshot. Enable JavaScript, then reload this file.</p></noscript>
+  <script>
+    "use strict";
+    window.__JOB_ANALYTICS__ = __DASHBOARD_DATA__;
+
+    (() => {
+      const DATA = window.__JOB_ANALYTICS__;
+      const PAGE_SIZE = 50;
+      const FILTER_KEYS = ["date_start", "date_end", "role_family", "geography", "channel", "stage", "fit_band", "evidence_tier", "feedback_category", "logistics_status", "seniority"];
+      const CONTROL_IDS = {
+        date_start: "date-start", date_end: "date-end", role_family: "role-family", geography: "geography",
+        channel: "channel", stage: "stage", fit_band: "fit-band", evidence_tier: "evidence-tier",
+        feedback_category: "feedback-category", logistics_status: "logistics-status", seniority: "seniority"
+      };
+      const OPTION_LABELS = {
+        role_family: "All Role Families", geography: "All Geographies", channel: "All Channels",
+        stage: "All Stages", fit_band: "All Fit Bands", evidence_tier: "All Evidence Tiers",
+        feedback_category: "All Feedback Categories", logistics_status: "All Logistics Statuses", seniority: "All Seniority Levels"
+      };
+      const numberFormat = new Intl.NumberFormat(undefined);
+      const percentFormat = new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 0 });
+      const dateFormat = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric" });
+      const state = {
+        date_start: "", date_end: "", role_family: "", geography: "", channel: "", stage: "", fit_band: "",
+        evidence_tier: "", feedback_category: "", logistics_status: "", seniority: "", search: "", page: 1,
+        sort: "application_date", dir: "desc", tab: "today", cadence: "daily", expanded: []
+      };
+      let statusTimer = 0;
+
+      const escapeHTML = (value) => String(value ?? "").replace(/[&<>'"]/g, (character) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", "\"": "&quot;"
+      })[character]);
+      const pretty = (value) => String(value || "Unknown").replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+      const formatDate = (value) => {
+        if (!value) return "Not recorded";
+        const parsed = new Date(`${value}T00:00:00`);
+        return Number.isNaN(parsed.valueOf()) ? "Not recorded" : dateFormat.format(parsed);
+      };
+      const safeSource = (value) => {
+        try {
+          const parsed = new URL(value);
+          return ["http:", "https:"].includes(parsed.protocol) ? parsed.href : "";
+        } catch { return ""; }
+      };
+      const selectedOption = (value, selected) => `<option value="${escapeHTML(value)}"${value === selected ? " selected" : ""}>${escapeHTML(pretty(value))}</option>`;
+
+      function announce(message) {
+        const region = document.getElementById("status");
+        region.textContent = message;
+        region.classList.add("is-visible");
+        window.clearTimeout(statusTimer);
+        statusTimer = window.setTimeout(() => region.classList.remove("is-visible"), 1800);
+      }
+
+      function emptyState(title, message, actionLabel = "Reset Filters") {
+        return `<div class="empty-state"><h3>${escapeHTML(title)}</h3><p>${escapeHTML(message)}</p><button class="button button-primary" type="button" data-empty-action="reset">${escapeHTML(actionLabel)}</button></div>`;
+      }
+
+      function readURLState() {
+        const params = new URLSearchParams(window.location.search);
+        FILTER_KEYS.forEach((key) => { state[key] = params.get(key) || ""; });
+        state.search = params.get("search") || "";
+        state.page = Math.max(1, Number.parseInt(params.get("page") || "1", 10) || 1);
+        state.sort = ["company", "role", "application_date", "stage", "fit_score", "age_days"].includes(params.get("sort")) ? params.get("sort") : "application_date";
+        state.dir = params.get("dir") === "asc" ? "asc" : "desc";
+        state.tab = params.get("tab") || "today";
+        state.cadence = params.get("cadence") === "weekly" ? "weekly" : "daily";
+        state.expanded = (params.get("feedback") || "").split(",").filter(Boolean);
+      }
+
+      function writeURLState() {
+        const params = new URLSearchParams();
+        FILTER_KEYS.forEach((key) => { if (state[key]) params.set(key, state[key]); });
+        if (state.search) params.set("search", state.search);
+        if (state.page > 1) params.set("page", String(state.page));
+        if (state.sort !== "application_date") params.set("sort", state.sort);
+        if (state.dir !== "desc") params.set("dir", state.dir);
+        if (state.tab !== "today") params.set("tab", state.tab);
+        if (state.cadence !== "daily") params.set("cadence", state.cadence);
+        if (state.expanded.length) params.set("feedback", state.expanded.join(","));
+        const next = params.toString();
+        history.replaceState(null, "", `${window.location.pathname}${next ? `?${next}` : ""}${window.location.hash}`);
+      }
+
+      function populateFilters() {
+        const sourceMap = {
+          role_family: DATA.filters.role_family, geography: DATA.filters.geography, channel: DATA.filters.channel,
+          stage: DATA.filters.stage, fit_band: DATA.filters.fit_band, evidence_tier: DATA.filters.evidence_tier,
+          feedback_category: DATA.filters.feedback_category, logistics_status: DATA.filters.logistics_status, seniority: DATA.filters.seniority
+        };
+        Object.entries(sourceMap).forEach(([key, values]) => {
+          const control = document.getElementById(CONTROL_IDS[key]);
+          control.innerHTML = `<option value="">${OPTION_LABELS[key]}</option>${values.map((value) => selectedOption(value, state[key])).join("")}`;
+        });
+        FILTER_KEYS.forEach((key) => { document.getElementById(CONTROL_IDS[key]).value = state[key]; });
+        document.getElementById("pipeline-search").value = state.search;
+        document.getElementById("cadence-granularity").value = state.cadence;
+      }
+
+      function feedbackApplicationIds(category) {
+        return new Set(DATA.feedback.category_application_ids[category] || []);
+      }
+
+      function applyFilters(currentState) {
+        const feedbackIds = currentState.feedback_category ? feedbackApplicationIds(currentState.feedback_category) : null;
+        const rows = DATA.pipeline.filter((row) => {
+          if (currentState.date_start && (!row.application_date || row.application_date < currentState.date_start)) return false;
+          if (currentState.date_end && (!row.application_date || row.application_date > currentState.date_end)) return false;
+          if (currentState.role_family && row.role_family !== currentState.role_family) return false;
+          if (currentState.geography && row.geography !== currentState.geography) return false;
+          if (currentState.channel && row.channel !== currentState.channel) return false;
+          if (currentState.stage && row.stage !== currentState.stage) return false;
+          if (currentState.fit_band && row.fit_band !== currentState.fit_band) return false;
+          if (currentState.evidence_tier && !row.feedback_evidence_tiers.includes(currentState.evidence_tier)) return false;
+          if (currentState.logistics_status && row.logistics_status !== currentState.logistics_status) return false;
+          if (currentState.seniority && row.seniority !== currentState.seniority) return false;
+          if (feedbackIds && !feedbackIds.has(row.application_id)) return false;
+          return true;
+        });
+        return { ids: new Set(rows.map((row) => row.application_id)), rows };
+      }
+
+      function barChart(id, title, description, rows, valueLabel = "Count", axisMode = "count") {
+        if (!rows.length) return emptyState(`No ${title.toLowerCase()} data`, "Broaden the shared filters to restore this chart.");
+        const width = 720;
+        const rowHeight = 42;
+        const left = 175;
+        const right = 70;
+        const plotWidth = width - left - right;
+        const maximum = axisMode === "progression" ? 1 : Math.max(1, ...rows.map((row) => row.value));
+        const baselineY = rows.length * rowHeight + 12;
+        const height = baselineY + 48;
+        const bars = rows.map((row, index) => {
+          const y = index * rowHeight + 12;
+          const barWidth = plotWidth * row.value / maximum;
+          return `<text class="axis" x="0" y="${y + 15}">${escapeHTML(row.label)}</text><rect class="bar-bg" x="${left}" y="${y}" width="${plotWidth}" height="18"/><rect class="bar" x="${left}" y="${y}" width="${barWidth}" height="18"/><text class="value" x="${width - right + 10}" y="${y + 15}">${escapeHTML(row.svgDisplay ?? row.display ?? numberFormat.format(row.value))}</text>`;
+        }).join("");
+        const tickValues = (axisMode === "progression" ? [0, 0.5, 1] : [0, Math.ceil(maximum / 2), maximum]).filter((value, index, values) => values.indexOf(value) === index);
+        const ticks = tickValues.map((value) => {
+          const x = left + plotWidth * value / maximum;
+          const label = axisMode === "progression" ? percentFormat.format(value) : numberFormat.format(value);
+          return `<line class="axis-line" x1="${x}" y1="${baselineY}" x2="${x}" y2="${baselineY + 6}"/><text class="axis" x="${x}" y="${baselineY + 20}" text-anchor="middle">${label}</text>`;
+        }).join("");
+        const tableRows = rows.map((row) => `<tr><th scope="row">${escapeHTML(row.label)}</th><td>${escapeHTML(row.display ?? numberFormat.format(row.value))}</td></tr>`).join("");
+        return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="${id}-title ${id}-description"><title id="${id}-title">${escapeHTML(title)}</title><desc id="${id}-description">${escapeHTML(description)}</desc>${bars}<line class="axis-line axis-line-strong" x1="${left}" y1="${baselineY}" x2="${width - right}" y2="${baselineY}"/>${ticks}<text class="axis" x="${left + plotWidth / 2}" y="${height - 2}" text-anchor="middle">${escapeHTML(valueLabel)}</text></svg><table class="chart-table"><caption>Text Summary: ${escapeHTML(title)}</caption><thead><tr><th scope="col">Segment</th><th scope="col">${escapeHTML(valueLabel)}</th></tr></thead><tbody>${tableRows}</tbody></table>`;
+      }
+
+      function renderCommandCenter(rows) {
+        const ids = new Set(rows.map((row) => row.application_id));
+        const byStage = (name) => rows.filter((row) => row.stage === name).length;
+        const todayCount = (name) => DATA.today.application_ids[name].filter((id) => ids.has(id)).length;
+        const screened = todayCount("screened");
+        const submitted = todayCount("submitted");
+        const gateRejections = todayCount("rejected_by_gate");
+        const followUps = todayCount("follow_ups");
+        const ambiguous = DATA.data_quality.review_queue.items.filter((item) =>
+          item.candidate_application_ids.length === 0
+          || item.candidate_application_ids.some((applicationId) => ids.has(applicationId))
+        ).length;
+        const staleSet = new Set(DATA.data_quality.stale_rows);
+        const stale = rows.filter((row) => staleSet.has(row.application_id)).length;
+        const screeningRatio = Math.min(100, screened / DATA.today.screening_target * 100);
+        const submissionRatio = Math.min(100, submitted / DATA.today.submission_soft_capacity * 100);
+        document.getElementById("coverage-note").innerHTML = DATA.data_quality.lifecycle_coverage.insufficient
+          ? `<div class="coverage-note" role="note"><strong>Coverage Gap</strong><span>Historical ${escapeHTML(DATA.data_quality.lifecycle_coverage.missing_event_types.join(" and "))} events are missing; early-funnel conversion is not inferred. Today’s visible counts remain exact.</span></div>` : "";
+        const topAction = DATA.feedback.top_action;
+        const actionPanel = topAction
+          ? `<article id="next-feedback-action" class="next-feedback-action"><div><p class="next-action-label">What changes the next application?</p><p class="next-action-meta">Highest-confidence active rule</p></div><p class="next-action-copy">${escapeHTML(topAction.required_action)}</p><p class="next-action-meta"><strong>${escapeHTML(pretty(topAction.category))}</strong><br>${escapeHTML(percentFormat.format(topAction.confidence))} confidence · ${numberFormat.format(topAction.evidence_count)} evidence</p></article>`
+          : `<article id="next-feedback-action" class="next-feedback-action"><div><p class="next-action-label">What changes the next application?</p></div><p class="next-action-copy">No active feedback action is recorded.</p><p class="next-action-meta">Review the feedback ledger before drafting.</p></article>`;
+        document.getElementById("command-kpis").innerHTML = `<div class="throughput-bands">
+          <article class="throughput-band"><div class="band-top"><p class="band-label">Screening Throughput</p><p class="band-value">${numberFormat.format(screened)} / ${numberFormat.format(DATA.today.screening_target)}</p></div><div class="meter" aria-hidden="true"><span style="width:${screeningRatio}%"></span></div><p class="band-note">Target: ${numberFormat.format(DATA.today.screening_target)} screened, separate from submissions.</p></article>
+          <article class="throughput-band"><div class="band-top"><p class="band-label">Submission Capacity</p><p class="band-value">${numberFormat.format(submitted)} / ${numberFormat.format(DATA.today.submission_soft_capacity)}</p></div><div class="meter" aria-hidden="true"><span style="width:${submissionRatio}%"></span></div><p class="band-note">Capacity: ${numberFormat.format(DATA.today.submission_soft_capacity)}. Today’s submitted events only.</p></article>
+        </div><div class="ledger-strip" aria-label="Operational counts">
+          ${[["Gate Rejections", gateRejections], ["Qualified", byStage("qualified")], ["Drafting", byStage("drafting")], ["Ready", byStage("ready")], ["Follow-ups", followUps], ["Stale", stale], ["Ambiguous", ambiguous]].map(([label, value]) => `<div class="ledger-item${["Stale", "Ambiguous"].includes(label) && value > 0 ? " ledger-alert" : ""}"><span class="metric-value">${numberFormat.format(value)}</span><span class="metric-label">${label}</span></div>`).join("")}
+          <p class="visually-hidden">Ambiguous linked items follow application filters; unmapped items remain global.</p>
+        </div>${actionPanel}`;
+      }
+
+      function renderFunnel(rows) {
+        if (!rows.length) {
+          document.getElementById("funnel-chart").innerHTML = emptyState("No funnel records", "Broaden the shared filters to recover lifecycle records.");
+          return;
+        }
+        const ids = new Set(rows.map((row) => row.application_id));
+        const stages = [
+          ["discovered", "Discovered"], ["screened", "Screened"], ["qualified", "Qualified"],
+          ["submitted", "Submitted"], ["responded", "Responded"], ["interviewed", "Interviewed"], ["offered", "Offered"],
+        ];
+        const data = stages.map(([key, label]) => ({
+          label,
+          value: DATA.lifecycle_application_ids[key].filter((id) => ids.has(id)).length,
+        }));
+        document.getElementById("funnel-chart").innerHTML = barChart("funnel-svg", "Cumulative Recorded Funnel", "Cumulative event-grounded lifecycle membership intersected with the shared filtered application ID set. Applications remain in every stage they reached.", data, "Count");
+      }
+
+      function renderTimeSeries(rows) {
+        if (!rows.length) {
+          document.getElementById("time-series-chart").innerHTML = emptyState("No submission cadence", "Broaden the shared filters to include applications.");
+          return;
+        }
+        const visibleIds = new Set(rows.map((row) => row.application_id));
+        const dailyPoints = DATA.daily_series.map((row) => [
+          row.date,
+          row.submitted_application_ids.filter((id) => visibleIds.has(id)).length,
+        ]);
+        const bucketFor = (value) => {
+          const parsed = new Date(`${value}T00:00:00Z`);
+          parsed.setUTCDate(parsed.getUTCDate() - ((parsed.getUTCDay() + 6) % 7));
+          return parsed.toISOString().slice(0, 10);
+        };
+        const weekly = new Map();
+        dailyPoints.forEach(([date, value]) => {
+          const bucket = bucketFor(date);
+          weekly.set(bucket, (weekly.get(bucket) || 0) + value);
+        });
+        const points = state.cadence === "daily" ? dailyPoints : [...weekly.entries()];
+        const width = 720, height = 270, padLeft = 58, padRight = 24, padTop = 28, padBottom = 52;
+        const max = Math.max(1, ...points.map(([, value]) => value));
+        const x = (index) => points.length === 1 ? (padLeft + width - padRight) / 2 : padLeft + index * (width - padLeft - padRight) / (points.length - 1);
+        const y = (value) => height - padBottom - value * (height - padTop - padBottom) / max;
+        const path = points.map(([, value], index) => `${index ? "L" : "M"}${x(index)},${y(value)}`).join(" ");
+        const dots = points.map(([date, value], index) => `<g><circle class="dot" cx="${x(index)}" cy="${y(value)}" r="${value ? 4 : 2}"><title>${escapeHTML(formatDate(date))}: ${numberFormat.format(value)} submissions</title></circle>${value ? `<text class="value" x="${x(index)}" y="${y(value) - 9}" text-anchor="middle">${numberFormat.format(value)}</text>` : ""}</g>`).join("");
+        const labelEvery = Math.max(1, Math.ceil(points.length / 6));
+        const labels = points.map(([date], index) => index % labelEvery === 0 || index === points.length - 1 ? `<text class="axis" x="${x(index)}" y="${height - 20}" text-anchor="middle">${escapeHTML(date.slice(5))}</text>` : "").join("");
+        const yTicks = [0, Math.ceil(max / 2), max].filter((value, index, values) => values.indexOf(value) === index).map((value) => `<g><text class="axis" x="${padLeft - 10}" y="${y(value) + 4}" text-anchor="end">${numberFormat.format(value)}</text><line class="axis-line" x1="${padLeft}" y1="${y(value)}" x2="${width - padRight}" y2="${y(value)}"/></g>`).join("");
+        const interval = state.cadence === "daily" ? "Daily" : "Weekly";
+        const tableRows = points.map(([date, value]) => `<tr><th scope="row">${escapeHTML(formatDate(date))}</th><td>${numberFormat.format(value)}</td></tr>`).join("");
+        document.getElementById("time-series-chart").innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="series-title series-description"><title id="series-title">${interval} Submission Cadence</title><desc id="series-description">Continuous ${interval.toLocaleLowerCase()} submission counts across the full snapshot date range, including zero periods, intersected with the shared filtered application ID set. The horizontal axis is period start and the vertical axis is submission count.</desc>${yTicks}<line class="axis-line axis-line-strong" x1="${padLeft}" y1="${height - padBottom}" x2="${width - padRight}" y2="${height - padBottom}"/><path class="line" d="${path}"/>${dots}${labels}<text class="axis" x="${width / 2}" y="${height - 2}" text-anchor="middle">${interval} Period Start</text><text class="axis" x="12" y="${height / 2}" text-anchor="middle" transform="rotate(-90 12 ${height / 2})">Submission Count</text></svg><table class="chart-table"><caption>Text Summary: ${interval} Submission Cadence, Full Continuous Range</caption><thead><tr><th scope="col">${interval} Period Start</th><th scope="col">Submission Count</th></tr></thead><tbody>${tableRows}</tbody></table>`;
+      }
+
+      function renderCalibration(rows) {
+        if (!rows.length) {
+          document.getElementById("calibration-chart").innerHTML = emptyState("No calibration sample", "Broaden the shared filters to restore fit-band denominators.");
+          return;
+        }
+        const lifecycle = Object.fromEntries(
+          ["submitted", "responded", "interviewed", "offered"].map((name) => [name, new Set(DATA.lifecycle_application_ids[name])])
+        );
+        const bands = new Map();
+        rows.forEach((row) => {
+          const applicationIds = bands.get(row.fit_band) || [];
+          applicationIds.push(row.application_id);
+          bands.set(row.fit_band, applicationIds);
+        });
+        const order = ["90-100", "80-89", "70-79", "60-69", "0-59", "missing"];
+        const data = [...bands.entries()].sort(([a], [b]) => order.indexOf(a) - order.indexOf(b)).map(([label, applicationIds]) => {
+          const count = (name) => applicationIds.filter((id) => lifecycle[name].has(id)).length;
+          const submitted = count("submitted");
+          const responded = count("responded");
+          const interviewed = count("interviewed");
+          const offered = count("offered");
+          const responseRate = submitted ? responded / submitted : 0;
+          return {
+            label: `${label} (n=${numberFormat.format(applicationIds.length)})`,
+            value: responseRate,
+            svgDisplay: percentFormat.format(responseRate),
+            display: `${percentFormat.format(responseRate)} response · ${numberFormat.format(submitted)} submitted · ${numberFormat.format(responded)} responded · ${numberFormat.format(interviewed)} interviewed · ${numberFormat.format(offered)} offered`,
+          };
+        });
+        document.getElementById("calibration-chart").innerHTML = barChart("calibration-svg", "Fit-Band Event Progression", "Event-grounded response conversion by fit band for the shared filtered application ID set. Text rows retain submitted, responded, interviewed, and offered counts.", data, "Progression", "progression");
+      }
+
+      function renderFeedbackCategories(ids) {
+        const rows = Object.entries(DATA.feedback.category_application_ids)
+          .filter(([category]) => !state.feedback_category || category === state.feedback_category)
+          .map(([category, applicationIds]) => ({
+            label: pretty(category),
+            value: applicationIds.filter((id) => ids.has(id)).length,
+          })).filter((row) => row.value > 0).sort((a, b) => b.value - a.value || a.label.localeCompare(b.label));
+        document.getElementById("feedback-category-chart").innerHTML = rows.length
+          ? barChart("feedback-category-svg", "Feedback Categories", "Unique visible applications linked to each feedback category. Every count is intersected with the shared filtered application ID set.", rows, "Count")
+          : emptyState("No feedback categories", "Broaden the shared filters to include applications with categorized feedback.");
+      }
+
+      function renderAging(rows) {
+        const bands = [
+          { label: "0–7 days", test: (age) => age !== null && age <= 7 },
+          { label: "8–14 days", test: (age) => age !== null && age >= 8 && age <= 14 },
+          { label: "15–30 days", test: (age) => age !== null && age >= 15 && age <= 30 },
+          { label: "31+ days", test: (age) => age !== null && age >= 31 },
+          { label: "Age not recorded", test: (age) => age === null },
+        ].map((band) => ({ label: band.label, value: rows.filter((row) => band.test(row.age_days)).length }));
+        document.getElementById("aging-chart").innerHTML = rows.length
+          ? barChart("aging-svg", "Pipeline Aging Distribution", "Visible applications grouped by days since their latest lifecycle event. Counts derive only from the shared filtered application ID set.", bands, "Count")
+          : emptyState("No pipeline aging sample", "Broaden the shared filters to restore the aging distribution.");
+      }
+
+      function renderFeedback(ids) {
+        const lineage = DATA.feedback.lineage.filter((rule) =>
+          (!state.feedback_category || rule.category === state.feedback_category)
+          && rule.source_feedback.some((source) => ids.has(source.application_id))
+        );
+        const statuses = { active: 0, monitor: 0, resolved: 0 };
+        lineage.forEach((rule) => { if (Object.hasOwn(statuses, rule.status)) statuses[rule.status] += 1; });
+        const summary = `<div class="feedback-summary" aria-label="Feedback rule status counts">${[["Active", statuses.active], ["Monitor", statuses.monitor], ["Resolved", statuses.resolved]].map(([label, value]) => `<div><span class="metric-value">${numberFormat.format(value)}</span><span class="metric-label">${label} Rules in Visible Set</span></div>`).join("")}</div>`;
+        if (!lineage.length) {
+          document.getElementById("feedback-list").innerHTML = summary + emptyState("No feedback lineage in this set", "Broaden the shared filters to include applications linked to feedback rules.");
+          return;
+        }
+        const details = lineage.map((rule) => {
+          const sources = rule.source_feedback.filter((source) => ids.has(source.application_id));
+          const sourceEvidence = sources.map((source) => {
+            const application = DATA.pipeline.find((row) => row.application_id === source.application_id);
+            const confidence = source.confidence === null ? "Not recorded" : percentFormat.format(source.confidence);
+            return `<li><p><strong>${escapeHTML(application?.company || "Unknown Company")}</strong></p><p class="mono">${escapeHTML(source.application_id)}</p><p><strong>Category:</strong> ${escapeHTML(pretty(source.category))} · <strong>Tier:</strong> ${escapeHTML(pretty(source.evidence_tier))} · <strong>Confidence:</strong> ${escapeHTML(confidence)}</p><p>${escapeHTML(source.evidence_excerpt || "No excerpt recorded.")}</p><p><strong>Action:</strong> ${escapeHTML(source.required_action || rule.required_action || "No action recorded.")}</p><button class="link-button" type="button" data-application-id="${escapeHTML(source.application_id)}">Open ${escapeHTML(application?.company || "Source Application")} in Pipeline</button></li>`;
+          }).join("");
+          const confidence = rule.confidence === null ? "Not recorded" : percentFormat.format(rule.confidence);
+          const open = state.expanded.includes(rule.rule_id) ? " open" : "";
+          return `<details data-rule-id="${escapeHTML(rule.rule_id)}"${open}><summary><span class="summary-title">${escapeHTML(pretty(rule.category))}</span><span class="mono">${escapeHTML(rule.rule_id)}</span><span class="status-chip status-${escapeHTML(rule.status)}">${escapeHTML(pretty(rule.status))}</span></summary><div class="detail-body"><dl class="detail-grid"><div><dt>Category</dt><dd>${escapeHTML(pretty(rule.category))}</dd></div><div><dt>Evidence Tiers</dt><dd>${escapeHTML(rule.evidence_tiers.map(pretty).join(", "))}</dd></div><div><dt>Confidence</dt><dd>${escapeHTML(confidence)}</dd></div><div class="detail-wide"><dt>Required Action</dt><dd>${escapeHTML(rule.required_action || "No rule-level action recorded.")}</dd></div><div><dt>State</dt><dd><span class="status-chip status-${escapeHTML(rule.status)}">${escapeHTML(pretty(rule.status))}</span></dd></div><div class="detail-wide"><dt>Source Evidence, Visible Applications Only</dt><dd><ul class="evidence-list">${sourceEvidence}</ul></dd></div></dl></div></details>`;
+        }).join("");
+        document.getElementById("feedback-list").innerHTML = `${summary}${details}`;
+      }
+
+      function compareRows(a, b, key) {
+        const left = a[key] ?? "";
+        const right = b[key] ?? "";
+        if (typeof left === "number" && typeof right === "number") return left - right;
+        return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" });
+      }
+
+      function renderPipeline(rows) {
+        const query = state.search.trim().toLocaleLowerCase();
+        const searched = query ? rows.filter((row) => [row.company, row.role, row.status, row.application_id, row.stage, row.geography].some((value) => String(value || "").toLocaleLowerCase().includes(query))) : rows;
+        const sorted = [...searched].sort((a, b) => compareRows(a, b, state.sort) * (state.dir === "asc" ? 1 : -1));
+        const pages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+        state.page = Math.min(state.page, pages);
+        const start = (state.page - 1) * PAGE_SIZE;
+        const pageRows = sorted.slice(start, start + PAGE_SIZE);
+        document.getElementById("pipeline-count").textContent = `${numberFormat.format(searched.length)} visible applications`;
+        if (!pageRows.length) {
+          document.getElementById("pipeline-table").innerHTML = emptyState("No matching applications", "Clear the search or reset the shared filters.");
+          document.getElementById("pipeline-pagination").innerHTML = "";
+          return;
+        }
+        const columns = [
+          ["company", "Company & Role"], ["application_date", "Submitted"], ["stage", "Stage"], ["fit_score", "Fit"], ["age_days", "Age"], ["source", "Source"]
+        ];
+        const head = columns.map(([key, label]) => `<th scope="col" aria-sort="${state.sort === key ? (state.dir === "asc" ? "ascending" : "descending") : "none"}">${key === "source" ? label : `<button class="sort-button" type="button" data-sort="${key}">${label}</button>`}</th>`).join("");
+        const body = pageRows.map((row) => {
+          const href = safeSource(row.source);
+          const stage = pretty(row.stage);
+          return `<tr id="row-${escapeHTML(row.application_id)}" tabindex="-1"><td class="company-cell"><strong>${escapeHTML(row.company || "Unknown Company")}</strong><span>${escapeHTML(row.role || "Role not recorded")}</span><span class="mono">${escapeHTML(row.application_id)}</span></td><td>${escapeHTML(formatDate(row.application_date))}</td><td><span class="status-chip status-${row.stage === "closed" ? "resolved" : "monitor"}">${escapeHTML(stage)}</span><br><span>${escapeHTML(row.next_action)}</span></td><td data-kind="number">${row.fit_score === null ? "Not scored" : numberFormat.format(row.fit_score)}</td><td data-kind="number">${row.age_days === null ? "Not recorded" : `${numberFormat.format(row.age_days)} days`}</td><td>${href ? `<a class="row-link" href="${escapeHTML(href)}" target="_blank" rel="noreferrer">Open Source</a>` : "Not recorded"}</td></tr>`;
+        }).join("");
+        document.getElementById("pipeline-table").innerHTML = `<div class="table-scroll" tabindex="0" aria-label="Scrollable application pipeline"><table class="pipeline-table"><caption class="visually-hidden">Filtered application pipeline</caption><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+        document.getElementById("pipeline-pagination").innerHTML = `<span class="tabular">Page ${numberFormat.format(state.page)} of ${numberFormat.format(pages)} · rows ${numberFormat.format(start + 1)}–${numberFormat.format(Math.min(start + PAGE_SIZE, sorted.length))}</span><div class="pagination-actions"><button class="button" type="button" data-page="prev"${state.page === 1 ? " disabled" : ""}>Previous Page</button><button class="button" type="button" data-page="next"${state.page === pages ? " disabled" : ""}>Next Page</button></div>`;
+      }
+
+      function openApplication(applicationId) {
+        state.search = applicationId;
+        state.page = 1;
+        state.tab = "pipeline";
+        document.getElementById("pipeline-search").value = applicationId;
+        renderAll({ announceChange: true });
+        window.requestAnimationFrame(() => {
+          const row = document.getElementById(`row-${applicationId}`);
+          if (!row) return;
+          row.scrollIntoView({ block: "center" });
+          row.focus({ preventScroll: true });
+        });
+      }
+      function focusRenderedTarget(targetId) {
+        const target = document.getElementById(targetId);
+        if (!target) return;
+        target.scrollIntoView({ block: "center" });
+        target.focus({ preventScroll: true });
+        announce("Quality review target focused.");
+      }
+
+
+      function qualityEntries(ids) {
+        const quality = DATA.data_quality;
+        const scoped = (label, key, action) => ({
+          label,
+          scope: "application",
+          items: (quality.application_ids[key] || []).filter((id) => ids.has(id)),
+          action,
+        });
+        const snapshot = (label, items, action, scope = "snapshot") => ({ label, scope, items, action });
+        const mappedOrSnapshot = (label, key, rawItems, action) => {
+          const mapped = quality.application_ids[key] || [];
+          return mapped.length ? { label, scope: "application", items: mapped.filter((id) => ids.has(id)), action } : snapshot(label, rawItems, action);
+        };
+        const linkedReviewApplications = [...new Set(
+          quality.review_queue.items
+            .flatMap((item) => item.candidate_application_ids)
+            .filter((applicationId) => ids.has(applicationId))
+        )];
+        const unmappedReviewItems = quality.review_queue.items.filter((item) => item.candidate_application_ids.length === 0);
+        return [
+          scoped("Missing Fit Scores", "missing_scores", "Review scoring fields"),
+          scoped("Missing Discovery Dates", "missing_dates", "Review source chronology"),
+          scoped("Ambiguous Statuses", "ambiguous_statuses", "Resolve pipeline stage"),
+          scoped("Stale Applications", "stale_rows", "Open stale records"),
+          scoped("Duplicate Applications", "duplicate_applications", "Resolve duplicate IDs"),
+          mappedOrSnapshot("Duplicate Events", "duplicate_events", quality.duplicates.events, "Review event ledger"),
+          snapshot("Orphaned Events", quality.orphaned_events, "Reconcile event ownership"),
+          snapshot("Orphaned Feedback", quality.orphaned_feedback, "Reconcile feedback ownership"),
+          mappedOrSnapshot("Invalid Event Times", "invalid_event_timestamps", quality.invalid_event_timestamps, "Correct event timestamps"),
+          mappedOrSnapshot("Future Events", "future_events", quality.future_events, "Verify reporting date"),
+          { label: "Review Queue, Linked Applications", scope: "application", items: linkedReviewApplications, action: "Open linked applications" },
+          snapshot("Review Queue, Unmapped Items", unmappedReviewItems, "Review reconciliation items", "review"),
+          quality.lifecycle_coverage.insufficient
+            ? snapshot("Lifecycle Coverage", quality.lifecycle_coverage.missing_event_types, "Historical conversion remains unavailable")
+            : snapshot("Lifecycle Coverage", [], "Coverage complete"),
+        ];
+      }
+
+      function renderDataQuality(ids) {
+        const entries = qualityEntries(ids).filter((entry) => entry.items.length);
+        if (!entries.length) {
+          document.getElementById("quality-list").innerHTML = emptyState("No quality issues in this set", "Reset the filters to review snapshot-wide data quality.");
+          return;
+        }
+        const rows = entries.map((entry, entryIndex) => {
+          const groupId = `quality-group-${entryIndex}`;
+          const targets = entry.items.map((item, itemIndex) => {
+            if (entry.scope === "application") {
+              return `<button class="link-button" type="button" data-application-id="${escapeHTML(item)}">${escapeHTML(item)}</button>`;
+            }
+            const targetId = `${groupId}-target-${itemIndex}`;
+            if (entry.scope === "review") {
+              return `<div id="${targetId}" class="quality-target" tabindex="-1"><p><strong>${escapeHTML(item.review_id)}</strong> · ${escapeHTML(item.company || "Company not recorded")} · ${escapeHTML(item.role || "Role not recorded")}</p><p>${escapeHTML(item.reason || "Reason not recorded")}</p><button class="link-button" type="button" data-focus-target="${targetId}">Focus Review Item</button></div>`;
+            }
+            const label = typeof item === "string" ? item : item.review_id;
+            return `<div id="${targetId}" class="quality-target" tabindex="-1"><span class="mono">${escapeHTML(label)}</span><button class="link-button" type="button" data-focus-target="${targetId}">Focus This Snapshot Item</button></div>`;
+          }).join("");
+          const scope = entry.scope === "application" ? "Visible application scope" : "Snapshot-wide, non-row scope";
+          const summary = entry.scope === "application" ? `Show all ${numberFormat.format(entry.items.length)} affected applications` : `Show all ${numberFormat.format(entry.items.length)} snapshot items`;
+          return `<li id="${groupId}" class="quality-item" tabindex="-1"><strong>${escapeHTML(entry.label)}</strong><span class="quality-count">${numberFormat.format(entry.items.length)}</span><span class="quality-action"><span>${escapeHTML(scope)} · ${escapeHTML(entry.action)}</span><details class="quality-targets"><summary>${escapeHTML(summary)}</summary><div class="quality-target-list">${targets}</div></details></span></li>`;
+        }).join("");
+        document.getElementById("quality-list").innerHTML = `<ul class="quality-list">${rows}</ul>`;
+      }
+
+      function renderAll({ announceChange = false } = {}) {
+        const filtered = applyFilters(state);
+        renderCommandCenter(filtered.rows);
+        renderFunnel(filtered.rows);
+        renderTimeSeries(filtered.rows);
+        renderCalibration(filtered.rows);
+        renderFeedbackCategories(filtered.ids);
+        renderFeedback(filtered.ids);
+        renderAging(filtered.rows);
+        renderPipeline(filtered.rows);
+        renderDataQuality(filtered.ids);
+        const activeFilters = FILTER_KEYS.filter((key) => state[key]).length;
+        document.getElementById("filter-scope").textContent = `${numberFormat.format(filtered.rows.length)} of ${numberFormat.format(DATA.pipeline.length)} applications drive every view.`;
+        document.getElementById("filter-active-count").textContent = `${numberFormat.format(activeFilters)} active`;
+        document.querySelectorAll("[data-tab]").forEach((link) => link.setAttribute("aria-current", link.dataset.tab === state.tab ? "location" : "false"));
+        bindDynamicEvents();
+        writeURLState();
+        if (announceChange) announce(`${numberFormat.format(filtered.rows.length)} applications visible. Dashboard updated.`);
+      }
+
+      function resetState() {
+        FILTER_KEYS.forEach((key) => { state[key] = ""; });
+        state.search = ""; state.page = 1; state.sort = "application_date"; state.dir = "desc"; state.tab = "today"; state.cadence = "daily"; state.expanded = [];
+        populateFilters();
+        if (window.matchMedia("(max-width: 45rem)").matches) document.getElementById("filter-disclosure").open = false;
+        renderAll({ announceChange: true });
+      }
+
+      function bindDynamicEvents() {
+        document.querySelectorAll("[data-empty-action='reset']").forEach((button) => button.addEventListener("click", resetState));
+        document.querySelectorAll("[data-application-id]").forEach((button) => button.addEventListener("click", () => openApplication(button.dataset.applicationId)));
+        document.querySelectorAll("[data-focus-target]").forEach((button) => button.addEventListener("click", () => focusRenderedTarget(button.dataset.focusTarget)));
+        document.querySelectorAll("[data-sort]").forEach((button) => button.addEventListener("click", () => {
+          const key = button.dataset.sort;
+          state.dir = state.sort === key && state.dir === "asc" ? "desc" : "asc";
+          state.sort = key; state.page = 1; renderAll({ announceChange: true });
+        }));
+        document.querySelectorAll("[data-page]").forEach((button) => button.addEventListener("click", () => {
+          state.page += button.dataset.page === "next" ? 1 : -1; renderAll({ announceChange: true });
+          document.getElementById("pipeline-title").focus?.();
+        }));
+        document.querySelectorAll("details[data-rule-id]").forEach((details) => details.addEventListener("toggle", () => {
+          const id = details.dataset.ruleId;
+          state.expanded = details.open ? [...new Set([...state.expanded, id])] : state.expanded.filter((value) => value !== id);
+          writeURLState();
+        }));
+      }
+
+      function bindStaticEvents() {
+        FILTER_KEYS.forEach((key) => document.getElementById(CONTROL_IDS[key]).addEventListener("change", (event) => {
+          state[key] = event.currentTarget.value; state.page = 1; renderAll({ announceChange: true });
+        }));
+        let searchTimer = 0;
+        document.getElementById("pipeline-search").addEventListener("input", (event) => {
+          window.clearTimeout(searchTimer);
+          searchTimer = window.setTimeout(() => { state.search = event.target.value; state.page = 1; renderAll({ announceChange: true }); }, 120);
+        });
+        document.getElementById("cadence-granularity").addEventListener("change", (event) => {
+          state.cadence = event.currentTarget.value; renderAll({ announceChange: true });
+        });
+        document.getElementById("reset-filters").addEventListener("click", resetState);
+        document.querySelectorAll("[data-tab]").forEach((link) => link.addEventListener("click", () => { state.tab = link.dataset.tab; writeURLState(); }));
+        window.addEventListener("popstate", () => { readURLState(); populateFilters(); renderAll({ announceChange: true }); });
+        const mobileFilters = window.matchMedia("(max-width: 45rem)");
+        const disclosure = document.getElementById("filter-disclosure");
+        disclosure.open = !mobileFilters.matches;
+        mobileFilters.addEventListener("change", (event) => { disclosure.open = !event.matches; });
+      }
+
+      function boot() {
+        try {
+          if (!DATA || !Array.isArray(DATA.pipeline)) throw new Error("The embedded analytics snapshot is invalid.");
+          readURLState();
+          populateFilters();
+          const counts = DATA.meta.record_counts;
+          document.getElementById("snapshot-meta").textContent = `Generated ${formatDate(DATA.meta.generated_at.slice(0, 10))} · ${numberFormat.format(counts.applications)} applications · ${numberFormat.format(counts.events)} lifecycle events · ${escapeHTML(DATA.meta.reporting_timezone)}`;
+          bindStaticEvents();
+          renderAll();
+          announce(`Dashboard ready. ${numberFormat.format(DATA.pipeline.length)} applications loaded.`);
+          const active = document.querySelector(`[data-tab="${CSS.escape(state.tab)}"]`);
+          if (active && window.location.search && !window.location.hash) active.scrollIntoView({ block: "nearest", inline: "nearest" });
+        } catch (error) {
+          console.error(error);
+          document.getElementById("main").innerHTML = `<div class="error-state" role="alert"><h2>Dashboard Could Not Load</h2><p>${escapeHTML(error.message)}</p><button class="button button-primary" type="button" id="reload-dashboard">Reload Dashboard</button></div>`;
+          document.getElementById("reload-dashboard")?.addEventListener("click", () => window.location.reload());
+        }
+      }
+
+      boot();
+    })();
+  </script>
+</body>
+</html>

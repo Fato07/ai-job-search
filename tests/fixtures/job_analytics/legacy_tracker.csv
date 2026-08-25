@@ -1,0 +1,4 @@
+date,company,sector,role,role_type,channel,status,contact_person,fit_rating,notes,cv_file,cover_letter_file,source
+2026-07-19,Example Deploy,Enterprise AI,Forward Deployed AI Engineer,Full-time Remote,Teamtailor,SUBMITTED 2026-07-19,,92/100 Strong,Application submitted.,cv/example-deploy.pdf,,https://jobs.example.test/deploy
+2026-08-17,Example Robotics,Industrial robotics,Senior Applied AI Engineer,Full-time Remote,Ashby,REJECTED 2026-08-24,,96/100 Strong,Generic closer-match rejection.,cv/example-robotics.pdf,,https://jobs.example.test/robotics
+2026-07-05,Example Security,AI security,AI Security Engineer,Full-time Remote,LinkedIn,HOLD (needs sponsorship),,74/100 Good,Sponsorship blocker.,,,https://jobs.example.test/security

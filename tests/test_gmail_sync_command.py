@@ -12,6 +12,7 @@ missed rejection or interview invite just looks like "no updates".
 """
 import unittest
 from pathlib import Path
+from analytics.gmail_sync import _scan_queries
 
 REPO = Path(__file__).resolve().parent.parent
 GMAIL_SYNC = REPO / ".claude" / "commands" / "gmail-sync.md"
@@ -21,22 +22,29 @@ class TestGmailQueryOperators(unittest.TestCase):
     def setUp(self):
         self.text = GMAIL_SYNC.read_text(encoding="utf-8")
 
-    def test_query_excludes_sent_and_drafts_explicitly(self):
-        self.assertIn(
-            "-in:sent -in:drafts",
-            self.text,
-            "the query must exclude sent/drafts with negative operators, "
-            "which keep archived and label-filtered mail in scope",
-        )
+    def test_command_routes_to_reviewed_refresh_and_review_queue(self):
+        self.assertIn("python3 -m analytics.refresh --sync-gmail", self.text)
+        self.assertIn("analytics/reconciliation_review.csv", self.text)
+        self.assertIn("analytics/config.json", self.text)
 
-    def test_query_never_restricts_to_the_inbox(self):
-        self.assertNotIn(
-            "in:inbox",
-            self.text.replace("-in:sent", "").replace("-in:drafts", ""),
-            "in:inbox silently drops archived mail and everything a "
-            "label-and-archive filter routed past the inbox - exactly the "
-            "mail the label search in Step 3.1 exists to find",
+    def test_every_reviewed_query_excludes_sent_and_drafts_without_inbox_scope(self):
+        queries = _scan_queries(
+            [
+                {
+                    "application_id": "app-1",
+                    "discovered_at": "2026-08-01",
+                    "submitted_at": "2026-08-02",
+                    "company": "Example Co",
+                    "stage": "submitted",
+                }
+            ],
+            {"last_successful_at": None},
         )
+        self.assertTrue(queries)
+        for query in queries:
+            with self.subTest(query=query):
+                self.assertIn("-in:sent -in:drafts", query)
+                self.assertNotIn("in:inbox", query)
 
 
 if __name__ == "__main__":

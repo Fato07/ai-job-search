@@ -16,6 +16,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from analytics.model import TRACKER_COLUMNS
 
 try:
     import yaml  # noqa: F401 - only probing availability for the lint integration test
@@ -35,10 +36,7 @@ SKILL = REPO / ".claude" / "skills" / "job-application-assistant" / "SKILL.md"
 SCRAPER = REPO / ".claude" / "skills" / "job-scraper" / "SKILL.md"
 DOCS_README = REPO / "documents" / "README.md"
 
-TRACKER_HEADER = (
-    "date,company,sector,role,role_type,channel,status,contact_person,"
-    "fit_rating,notes,cv_file,cover_letter_file,source,deadline"
-)
+TRACKER_HEADER = ",".join(TRACKER_COLUMNS)
 
 
 def section(path, heading):
@@ -56,16 +54,16 @@ class ApplyRecordsApplication(unittest.TestCase):
     def setUp(self):
         self.step_6b = section(APPLY, "### Step 6b: Record the Application")
 
-    def test_step_writes_a_drafted_row_with_both_document_paths(self):
+    def test_step_writes_a_drafting_row_with_both_document_paths(self):
         for fragment in (
+            "| `stage` | `drafting` |",
             "| `status` | `drafted` |",
             '| `cv_file`, `cover_letter_file` | the two paths listed under "Files Created"',
         ):
             self.assertIn(
                 fragment,
                 self.step_6b,
-                f"Step 6b's column table lost {fragment!r} - the row it writes would "
-                "no longer identify itself as a draft or point at the documents",
+                f"Step 6b's column table lost {fragment!r}",
             )
 
     def test_tracker_header_matches_outcome(self):
@@ -90,7 +88,7 @@ class ApplyRecordsApplication(unittest.TestCase):
         for name, text in (("outcome.md", OUTCOME.read_text(encoding="utf-8")),
                            ("apply.md Step 6b", self.step_6b)):
             header = next(
-                (ln.strip() for ln in text.splitlines() if ln.strip().startswith("date,company,")),
+                (ln.strip() for ln in text.splitlines() if ln.strip().startswith("application_id,discovered_at,")),
                 None,
             )
             self.assertEqual(
@@ -111,29 +109,23 @@ class ApplyRecordsApplication(unittest.TestCase):
             "existing row's values by one position",
         )
 
-    def test_migration_appends_the_headers_own_last_column(self):
-        """The migration sentence and the create path must name the same column.
-
-        Derived, never copied - the same discipline `HtmlReportTrackerFieldTests`
-        already applies to its `CANONICAL_HEADER`. A hardcoded `,deadline` here
-        keeps passing after the column is renamed or a fifteenth is appended,
-        because the assertion no longer has any connection to the header it is
-        supposed to police. A tracker migrated by these commands and one they
-        create from scratch would then hold different schemas, which is the exact
-        divergence the shared-header rule exists to prevent.
-        """
-        last_column = TRACKER_HEADER.rsplit(",", 1)[1]
-        outcome_step_1 = section(OUTCOME, "## Step 1: Load State and Identify the Application")
+    def test_legacy_tracker_routes_through_the_canonical_migrator(self):
         for name, text in (
             ("apply.md Step 6b", section(APPLY, "### Step 6b: Record the Application")),
-            ("outcome.md Step 1", outcome_step_1),
+            (
+                "outcome.md Step 1",
+                section(OUTCOME, "## Step 1: Load State and Identify the Application"),
+            ),
         ):
             self.assertIn(
-                f"append `,{last_column}` to the header line",
+                "python3 -m analytics.migrate job_search_tracker.csv --apply",
                 text,
-                f"{name}'s migration does not append the header's own last column "
-                f"({last_column!r}) - a tracker migrated by this command would not "
-                "match one this command creates from scratch",
+                f"{name} must use the one reviewed migration path",
+            )
+            self.assertIn(
+                "never append or patch a legacy header",
+                text,
+                f"{name} must not create a second operating schema",
             )
 
     def test_step_runs_before_the_optional_offer_that_ends_the_turn(self):
@@ -197,37 +189,54 @@ class DraftedMeansDraftedToEveryReader(unittest.TestCase):
     """
 
     CASES = [
-        (HTML_REPORT, None, "`drafted` → **Drafted**",
-         "a status with no bucket is dropped from every statistic"),
-        (HTML_REPORT, "## Step 2: Compute Summary Stats",
-         "excluded from every statistic below",
-         "the headline count would include applications that were never sent"),
-        (OUTCOME, "## Step 2b: Follow-Up Branch", "neither final nor `drafted`",
-         "it would chase an employer who received nothing"),
-        (OUTCOME, "## Step 4: Update the Tracker",
-         "overwrite its `date` column with the actual submission date",
-         "the drafting date would be reported as the application date"),
-        (GMAIL_SYNC, None, "`drafted` rows stay in this set",
-         "excluding them discards the row that identifies a submitted-but-"
-         "unrecorded application, which is the recovery #269 asks for"),
-        (GMAIL_SYNC, "## Step 5", "`drafted` -> `applied`, otherwise",
-         "the acknowledgement is the one email that proves a hand-submitted "
-         "application was sent; classified as noise, the recovery never fires"),
-        (GMAIL_SYNC, "### Step 7a", "also set `date` to the email's date",
-         "the row would keep the drafting date after being proved submitted"),
-        (GMAIL_SYNC, "## Step 9: Staleness Check", "Skip `drafted` rows here",
-         "an unsent draft reported as a forgotten application"),
-        (NOTION_SYNC, None, "omit when the status is `drafted`",
-         "an 'Applied on' date for a job never applied to"),
-        (NOTION_SYNC, None, "not yet submitted",
-         "page bodies are write-once, so calling drafts 'submitted documents' "
-         "is permanent even after /outcome records the real submission"),
-        (SCRAPER, None, "do not add a second row",
-         "/scrape would duplicate the row Step 3b just wrote"),
-        (APPLY, "### Step 6b: Record the Application", "bare number, 0-100",
-         "/upskill divides by fit_rating, so `72/100` or a verdict word breaks it"),
-        (APPLY, "### Step 6b: Record the Application", "append a new row",
-         "re-applying after a rejection would overwrite the old application"),
+        (
+            OUTCOME,
+            "## Step 2b: Follow-Up Branch",
+            "stage is neither `closed` nor `drafting`",
+            "it would chase an employer who received nothing",
+        ),
+        (
+            OUTCOME,
+            "## Step 4: Update the Tracker",
+            "set `submitted_at` to the actual submission date",
+            "the discovery date must not be rewritten as the application date",
+        ),
+        (
+            GMAIL_SYNC,
+            None,
+            "python3 -m analytics.refresh --sync-gmail",
+            "Gmail classification must use the reviewed normalized writer",
+        ),
+        (
+            NOTION_SYNC,
+            None,
+            "omit when the `stage` is `drafting`",
+            "an Applied on date must not appear for an unsent draft",
+        ),
+        (
+            NOTION_SYNC,
+            None,
+            "not yet submitted",
+            "draft documents must not be described as submitted",
+        ),
+        (
+            SCRAPER,
+            None,
+            "do not add a second row",
+            "/scrape would duplicate the row Step 3b just wrote",
+        ),
+        (
+            APPLY,
+            "### Step 6b: Record the Application",
+            "bare number, 0-100",
+            "/upskill divides by fit_score, so decorated text breaks it",
+        ),
+        (
+            APPLY,
+            "### Step 6b: Record the Application",
+            "append a new row",
+            "re-applying after a rejection would overwrite the old application",
+        ),
     ]
 
     def test_every_reader_handles_drafted(self):
@@ -320,62 +329,72 @@ class DeadlineSurvivesEveryWrite(unittest.TestCase):
     """
 
     CASES = [
-        (APPLY, "### Step 6b: Record the Application", "append `,deadline` to the header line only",
-         "a mid-header insert shifts every existing row's values by one position"),
-        (OUTCOME, "## Step 1: Load State and Identify the Application",
-         "append `,deadline` to the header line only",
-         "the two commands must migrate identically, or whichever runs first sets the schema"),
-        (APPLY, "## Step 0: Parse Input", "application deadline",
-         "Step 6b's value is supposed to come from Step 0's extraction, so the extraction "
-         "must be stated where the posting text is still held in full"),
-        (APPLY, "### Step 6b: Record the Application", "Never guess one",
-         "the deadline must stay empty when the posting states none - a guessed date is "
-         "the urgency clock firing on a date nobody set"),
-        (APPLY, "### Step 6b: Record the Application", "leave an existing deadline alone",
-         "absence is not a correction: a run that extracted no deadline must not blank "
-         "the one /apply already wrote"),
-        (OUTCOME, "## Step 1: Load State and Identify the Application", "Deadline urgency",
-         "a drafted row has nothing applied so the quiet clock must not run on it - the "
-         "deadline is the only clock that applies, and it must not be omitted"),
-        (OUTCOME, "## Step 1: Load State and Identify the Application", "never chased",
-         "surfacing the deadline must not drag drafted rows into the follow-up offer"),
-        (OUTCOME, "## Step 4: Update the Tracker", "preserve every other field of the row",
-         "a status update that rewrites the row would blank the deadline column"),
-        (GMAIL_SYNC, "### Step 7a: Write Approved Updates", "preserve every other field",
-         "the sync path rewrites the row too - it must carry the same preservation rule"),
-        (NOTION_SYNC, None, "**Deadline precedence: the tracker wins too**",
-         "the tracker's deadline (written from the posting the application was actually "
-         "built on) must override the scraper's stored value"),
-        (NOTION_SYNC, None, "tracker `deadline` column",
-         "the Deadine property must name the tracker column as its source"),
-        (SKILL, "### Step 3b: Record the Application", "`deadline` is the application deadline",
-         "the /scrape path reaches Step 3b without running /apply Step 0, so it must "
-         "still be told what the field is and where it comes from"),
-        # The two properties the migration has to hold. Both are stated in the
-        # prose of either file and neither was pinned, so either could be edited
-        # away with a green suite - turning an agreed header-line append into a
-        # row rewrite, which is a different and far riskier change.
-        (APPLY, "### Step 6b: Record the Application", "no data row is touched",
-         "a migration that rewrites rows is a different and far riskier change than "
-         "one that appends to the header line, and only the second was agreed"),
-        (OUTCOME, "## Step 1: Load State and Identify the Application", "no data row is touched",
-         "same rule, stated in both files, because either command may be the one that "
-         "meets a legacy tracker first"),
-        (APPLY, "### Step 6b: Record the Application", "read as an empty deadline",
-         "rows written before the migration have no fourteenth field; if that is not "
-         "stated, a reader may treat the short row as malformed and drop it"),
-        (OUTCOME, "## Step 1: Load State and Identify the Application",
-         "read as an empty deadline",
-         "same rule, stated in both files"),
-        (OUTCOME, "## Step 1: Load State and Identify the Application",
-         "one edit to an existing tracker",
-         "Step 4 forbids restructuring the CSV, so without this the header append reads "
-         "as a violation of the same command's own rule and an implementer has a "
-         "documented reason to skip the migration"),
-        (NOTION_SYNC, None, "never reconcile the two by picking the earlier or later date",
-         "the tracker-wins rule says which source to prefer but does not forbid the "
-         "plausible-looking min() of the two, which syncs a date the user never "
-         "applied against"),
+        (
+            APPLY,
+            "## Step 0: Parse Input",
+            "application deadline",
+            "the canonical deadline must come from the posting",
+        ),
+        (
+            APPLY,
+            "### Step 6b: Record the Application",
+            "Never guess one",
+            "an unknown deadline must remain empty",
+        ),
+        (
+            APPLY,
+            "### Step 6b: Record the Application",
+            "leave an existing deadline alone",
+            "absence is not a correction",
+        ),
+        (
+            OUTCOME,
+            "## Step 1: Load State and Identify the Application",
+            "Deadline urgency",
+            "the application deadline still drives urgency",
+        ),
+        (
+            OUTCOME,
+            "## Step 1: Load State and Identify the Application",
+            "never chased",
+            "drafting rows must not enter follow-up",
+        ),
+        (
+            OUTCOME,
+            "## Step 4: Update the Tracker",
+            "preserve every other field of the row",
+            "status updates must retain deadline",
+        ),
+        (
+            GMAIL_SYNC,
+            None,
+            "preserves all non-lifecycle tracker fields, including `deadline`",
+            "the reviewed sync path must carry deadline unchanged",
+        ),
+        (
+            NOTION_SYNC,
+            None,
+            "**Deadline precedence: the tracker wins too**",
+            "the applied posting is authoritative",
+        ),
+        (
+            NOTION_SYNC,
+            None,
+            "tracker `deadline` column",
+            "Notion must name the canonical source field",
+        ),
+        (
+            SKILL,
+            "### Step 3b: Record the Application",
+            "`deadline` is the application deadline",
+            "the scraper path must pass the field through",
+        ),
+        (
+            NOTION_SYNC,
+            None,
+            "never reconcile the two by picking the earlier or later date",
+            "tracker precedence must not be replaced by min/max guessing",
+        ),
     ]
 
     def test_deadline_survives_every_write(self):
@@ -419,10 +438,6 @@ class ArchiveNameIsOnePathComponent(unittest.TestCase):
          "by the **Subfolder naming** rule in `documents/README.md`",
          "the /scrape path writes its documents before Step 3b consults /apply, "
          "so /apply's filename rule cannot protect it"),
-        (GMAIL_SYNC, "## Step 2: Load State",
-         "by the **Subfolder naming** rule in `documents/README.md`",
-         "gmail-sync both locates and creates archives; its old spaces-only "
-         "paraphrase would split state across two folders"),
         (INTERVIEW, "## Step 1: Load the Application Context",
          "by the **Subfolder naming** rule in `documents/README.md`",
          "interview must read the same archive /apply and /outcome wrote"),
