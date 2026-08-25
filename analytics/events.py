@@ -11,6 +11,8 @@ from typing import Iterable, Mapping
 
 from analytics.model import (
     EVENT_COLUMNS,
+    LIFECYCLE_EVENT_SOURCES,
+    LIFECYCLE_EVENT_TYPES,
     TRACKER_COLUMNS,
     hash_source_ref,
     redact_email_addresses,
@@ -19,19 +21,6 @@ from analytics.model import (
     write_csv_atomic,
 )
 
-EVENT_TYPES = frozenset(
-    {
-        "discovered",
-        "submitted",
-        "received",
-        "interview",
-        "rejected",
-        "offer",
-        "viewed",
-        "follow_up",
-    }
-)
-EVENT_SOURCES = frozenset({"tracker_backfill", "employer_email"})
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _EVENT_ID = re.compile(r"evt-[0-9a-f]{64}")
 
@@ -159,9 +148,9 @@ def validate_event(event: Mapping[str, str], application_ids: set[str]) -> None:
             datetime.fromisoformat(value[:-1] + "+00:00")
         except ValueError as exc:
             raise ValueError(f"{name} must be an ISO-8601 UTC timestamp") from exc
-    if event["event_type"] not in EVENT_TYPES:
+    if event["event_type"] not in LIFECYCLE_EVENT_TYPES:
         raise ValueError(f"invalid event_type: {event['event_type']!r}")
-    if event["source"] not in EVENT_SOURCES:
+    if event["source"] not in LIFECYCLE_EVENT_SOURCES:
         raise ValueError(f"invalid event source: {event['source']!r}")
     if len(event["detail"]) > 280:
         raise ValueError("event detail exceeds 280 characters")
@@ -192,7 +181,7 @@ def mail_event(
         "application_id": application_id,
         "occurred_at": occurred_at,
         "event_type": event_type,
-        "source": "employer_email",
+        "source": "gmail",
         "detail": detail,
         "source_ref": source_ref,
         "created_at": created_at,

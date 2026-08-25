@@ -12,8 +12,9 @@ from analytics.model import (
     TRACKER_COLUMNS,
     redact_email_addresses,
     read_csv_rows,
+    slugify,
     stable_application_id,
-    validate_rows,
+    validate_tracker_rows,
     write_csv_atomic,
 )
 
@@ -119,10 +120,52 @@ def _split_fit_rating(value: str) -> tuple[str, str]:
     return match.group(1), match.group(2)
 
 
+def _legacy_screening_reason(status: str, decision: str) -> str:
+    if decision != "rejected":
+        return ""
+    normalized = re.sub(r"[-_]+", " ", status.casefold())
+    if "sponsor" in normalized:
+        category = "sponsorship_required"
+    elif "spam blocked" in normalized:
+        category = "ats_spam_blocked"
+    elif any(
+        phrase in normalized
+        for phrase in ("login required", "sign in required", "account required", "call required")
+    ):
+        category = "application_access_blocked"
+    elif any(
+        phrase in normalized
+        for phrase in ("location", "finland", "finnish")
+    ):
+        category = "location_blocked"
+    elif "closed" in normalized or "replaced requisition" in normalized:
+        category = "closed_without_submission"
+    elif "not applied" in normalized:
+        category = "not_applied"
+    elif "hold" in normalized:
+        category = "hold"
+    elif "skip" in normalized or "underlevelled" in normalized:
+        category = "strategic_skip"
+    else:
+        category = slugify(status)[:80] or "unspecified"
+    return f"legacy_screening:{category}"
+
+
 def migrate_row(row: Mapping[str, str]) -> dict[str, str]:
     columns = set(row)
     if columns == set(TRACKER_COLUMNS):
-        return {column: row[column] for column in TRACKER_COLUMNS}
+        normalized = {column: row[column] for column in TRACKER_COLUMNS}
+        normalized["geography"] = normalized["geography"].strip() or "unknown"
+        normalized["logistics_status"] = (
+            normalized["logistics_status"].strip() or "unknown"
+        )
+        normalized["screening_reason"] = (
+            normalized["screening_reason"].strip()
+            or _legacy_screening_reason(
+                normalized["status"], normalized["screening_decision"]
+            )
+        )
+        return normalized
     if columns != set(LEGACY_COLUMNS):
         raise ValueError("tracker row columns differ from legacy and normalized schemas")
 
@@ -150,11 +193,13 @@ def migrate_row(row: Mapping[str, str]) -> dict[str, str]:
         "role": row["role"],
         "role_family": _infer_role_family(row["role"]),
         "role_type": row["role_type"],
-        "geography": "",
-        "logistics_status": "",
+        "geography": "unknown",
+        "logistics_status": "unknown",
         "channel": row["channel"],
         "screening_decision": _infer_screening_decision(status, stage),
-        "screening_reason": "",
+        "screening_reason": _legacy_screening_reason(
+            status, _infer_screening_decision(status, stage)
+        ),
         "submitted_at": submitted_at,
         "stage": stage,
         "status": status,
@@ -171,8 +216,7 @@ def migrate_row(row: Mapping[str, str]) -> dict[str, str]:
 
 def migrate_rows(rows: Iterable[Mapping[str, str]]) -> list[dict[str, str]]:
     migrated = [migrate_row(row) for row in rows]
-    validate_rows(migrated, TRACKER_COLUMNS, unique_key="application_id")
-    return migrated
+    return validate_tracker_rows(migrated, context="normalized migration output")
 
 
 def migrate_tracker(path: Path, apply: bool) -> MigrationReport:

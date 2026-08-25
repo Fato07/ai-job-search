@@ -84,6 +84,27 @@ class ComposioError(RuntimeError):
     """A safe, payload-free error from the Composio adapter."""
 
 
+
+class ComposioUnavailableError(ComposioError):
+    """The CLI or authenticated Gmail connection is not currently available."""
+
+
+_UNAVAILABLE_ERROR = re.compile(
+    r"\b(?:not connected|disconnected|no connected account|"
+    r"connection (?:is )?(?:missing|not found|inactive|expired)|"
+    r"auth(?:entication)? (?:is )?(?:required|expired)|"
+    r"(?:token|credentials?) (?:is |are )?expired|unauthori[sz]ed)\b",
+    re.IGNORECASE,
+)
+
+
+def _composio_failure(message: str) -> ComposioError:
+    if _UNAVAILABLE_ERROR.search(message):
+        return ComposioUnavailableError(
+            "Composio Gmail connection is unavailable; reconnect account 'job-search'"
+        )
+    return ComposioError(message)
+
 @dataclass(frozen=True)
 class MailSignal:
     occurred_at: str
@@ -290,7 +311,8 @@ def unwrap_composio_result(result: Mapping[str, object]) -> dict:
     if not isinstance(result, Mapping):
         raise ComposioError("Composio result must be a JSON object")
     if _failed(result):
-        raise ComposioError(_diagnostic(result.get("error"), "Composio execution failed"))
+        message = _diagnostic(result.get("error"), "Composio execution failed")
+        raise _composio_failure(message)
 
     if result.get("storedInFile") is True:
         raw_path = result.get("outputFilePath")
@@ -364,10 +386,19 @@ class ComposioClient:
             )
         except subprocess.TimeoutExpired:
             raise ComposioError("Composio command timed out") from None
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as exc:
+            output = " ".join(
+                str(value or "")
+                for value in (getattr(exc, "stderr", ""), getattr(exc, "stdout", ""))
+            )
+            failure = _composio_failure(output)
+            if isinstance(failure, ComposioUnavailableError):
+                raise failure from None
             raise ComposioError("Composio command failed") from None
+        except FileNotFoundError:
+            raise ComposioUnavailableError("Composio CLI is unavailable") from None
         except OSError:
-            raise ComposioError("Composio CLI is unavailable") from None
+            raise ComposioError("Composio command failed") from None
 
         try:
             parsed = json.loads(completed.stdout)
@@ -926,21 +957,45 @@ def _scan_queries(
         f"{after} from:{sender}"
         for sender in _ATS_SENDERS
     )
-    companies = sorted(
-        {
-            phrase
-            for application in applications
-            if (phrase := _query_phrase(application.get("company")))
-        }
+    submitted = [
+        application
+        for application in applications
+        if str(application.get("submitted_at") or "").strip()
+    ]
+    submitted.sort(
+        key=lambda application: (
+            _query_phrase(application.get("company")),
+            str(application.get("application_id") or ""),
+        )
     )
-    for offset in range(0, len(companies), _COMPANY_QUERY_BATCH_SIZE):
+    submitted.sort(
+        key=lambda application: str(application.get("submitted_at") or ""),
+        reverse=True,
+    )
+    submitted.sort(
+        key=lambda application: (
+            str(application.get("stage") or "").strip().casefold() != "closed"
+        ),
+        reverse=True,
+    )
+    companies = list(dict.fromkeys(
+        phrase
+        for application in submitted
+        if (phrase := _query_phrase(application.get("company")))
+    ))
+    company_capacity = max(
+        0, (_MAX_DISCOVERY_QUERIES - len(queries)) * _COMPANY_QUERY_BATCH_SIZE
+    )
+    for offset in range(
+        0,
+        min(len(companies), company_capacity),
+        _COMPANY_QUERY_BATCH_SIZE,
+    ):
         batch = companies[offset:offset + _COMPANY_QUERY_BATCH_SIZE]
         queries.append(
             f"{after} {{{' '.join(f'from:{company}' for company in batch)}}} "
             "{application candidate interview hiring}"
         )
-    if len(queries) > _MAX_DISCOVERY_QUERIES:
-        raise ComposioError("Gmail discovery query limit exceeded")
     return tuple(queries)
 
 

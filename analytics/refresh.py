@@ -24,9 +24,12 @@ from analytics.model import (
     EVENT_COLUMNS,
     FEEDBACK_COLUMNS,
     REVIEW_COLUMNS,
+    REVIEW_STATUSES,
     TRACKER_COLUMNS,
     read_csv_rows,
+    read_tracker_rows,
     validate_rows,
+    validate_tracker_rows,
     write_csv_atomic,
 )
 from analytics.rules import build_rules, validate_rules
@@ -138,7 +141,7 @@ def _load_state(paths: RefreshPaths) -> _RefreshState:
     if missing:
         raise ValueError(f"refresh mutable files are missing: {missing}")
     return _RefreshState(
-        tracker=tuple(read_csv_rows(paths.tracker, TRACKER_COLUMNS)),
+        tracker=tuple(read_tracker_rows(paths.tracker)),
         events=tuple(read_csv_rows(paths.events, EVENT_COLUMNS)),
         feedback=tuple(read_csv_rows(paths.feedback, FEEDBACK_COLUMNS)),
         rules=tuple(_read_rules(paths.rules)),
@@ -189,11 +192,16 @@ def _apply_tracker_updates(
                 changed = True
         if changed:
             applied += 1
-    validate_rows(materialized, TRACKER_COLUMNS, unique_key="application_id")
+    validate_tracker_rows(materialized, context="refreshed tracker")
     return materialized, applied
 
 
-def _validate_review(row: Mapping[str, str], application_ids: set[str]) -> None:
+def _validate_review(
+    row: Mapping[str, str],
+    application_ids: set[str],
+    *,
+    incoming: bool = False,
+) -> None:
     if set(row) != set(REVIEW_COLUMNS):
         raise ValueError("review columns differ from schema")
     if any(not isinstance(row[column], str) for column in REVIEW_COLUMNS):
@@ -203,8 +211,10 @@ def _validate_review(row: Mapping[str, str], application_ids: set[str]) -> None:
     _parse_timestamp("review occurred_at", row["occurred_at"])
     if not _SHA256.fullmatch(row["source_ref"]):
         raise ValueError("review source_ref must be a SHA-256 hash")
-    if row["status"] != "pending":
-        raise ValueError("new review status must be pending")
+    if row["status"] not in REVIEW_STATUSES:
+        raise ValueError(f"invalid persisted review status: {row['status']!r}")
+    if incoming and row["status"] != "pending":
+        raise ValueError("incoming review status must be pending")
     if any(_EMAIL.search(row[field]) for field in ("sender", "subject", "reason")):
         raise ValueError("review text contains an email address")
     if any(len(row[field]) > 280 for field in ("sender", "subject", "company", "role", "reason")):
@@ -231,16 +241,26 @@ def _merge_review(
     by_source = {row["source_ref"]: row for row in rows}
     for candidate in incoming:
         row = {column: str(candidate.get(column, "")) for column in REVIEW_COLUMNS}
-        _validate_review(row, application_ids)
-        id_match = by_id.get(row["review_id"])
+        _validate_review(row, application_ids, incoming=True)
         source_match = by_source.get(row["source_ref"])
-        for match in (id_match, source_match):
-            if match is not None and match != row:
+        if source_match is not None:
+            if source_match["status"] != "pending":
+                continue
+            index = rows.index(source_match)
+            previous_id = source_match["review_id"]
+            id_match = by_id.get(row["review_id"])
+            if id_match is not None and id_match is not source_match:
                 raise ValueError("conflicting duplicate review identity")
-        if id_match is None and source_match is None:
-            rows.append(row)
+            rows[index] = row
+            by_id.pop(previous_id, None)
             by_id[row["review_id"]] = row
             by_source[row["source_ref"]] = row
+            continue
+        if row["review_id"] in by_id:
+            raise ValueError("conflicting duplicate review identity")
+        rows.append(row)
+        by_id[row["review_id"]] = row
+        by_source[row["source_ref"]] = row
     return sorted(rows, key=lambda row: (row["occurred_at"], row["review_id"]))
 
 
@@ -269,6 +289,19 @@ def _build_state(current: _RefreshState, proposal: SyncProposal) -> tuple[_Refre
     events = merge_events(current.events, proposal.events, application_ids)
     feedback = merge_feedback(current.feedback, proposal.feedback, application_ids)
     review = _merge_review(current.review, proposal.review_items, application_ids)
+    matched_sources = {
+        str(event.get("source_ref") or "")
+        for event in proposal.events
+        if event.get("source_ref")
+    }
+    review = [
+        row
+        for row in review
+        if not (
+            row["status"] == "pending"
+            and row["source_ref"] in matched_sources
+        )
+    ]
     rules = build_rules(feedback)
     validate_rules(rules)
     _validate_checkpoint(current.checkpoint, proposal.checkpoint)
@@ -294,7 +327,7 @@ def _build_state(current: _RefreshState, proposal: SyncProposal) -> tuple[_Refre
 
 def _validate_state(state: _RefreshState, previous_checkpoint: Mapping[str, object]) -> None:
     tracker = [dict(row) for row in state.tracker]
-    validate_rows(tracker, TRACKER_COLUMNS, unique_key="application_id")
+    validate_tracker_rows(tracker, context="staged tracker")
     application_ids = {row["application_id"] for row in tracker}
     events = [dict(row) for row in state.events]
     validate_rows(events, EVENT_COLUMNS, unique_key="event_id")
@@ -389,18 +422,57 @@ def refresh(
     return summary
 
 
+def update_review_status(
+    paths: RefreshPaths,
+    review_id: str,
+    status: str,
+) -> dict[str, str]:
+    if status not in {"resolved", "ignored"}:
+        raise ValueError("review status must be resolved or ignored")
+    recover_transaction(paths.journal, paths.mutable_files())
+    tracker = read_tracker_rows(paths.tracker)
+    application_ids = {row["application_id"] for row in tracker}
+    rows = read_csv_rows(paths.review, REVIEW_COLUMNS)
+    target: dict[str, str] | None = None
+    for row in rows:
+        _validate_review(row, application_ids)
+        if row["review_id"] == review_id:
+            target = row
+    if target is None:
+        raise ValueError(f"unknown review_id: {review_id!r}")
+    target["status"] = status
+    validate_rows(rows, REVIEW_COLUMNS, unique_key="review_id")
+    _validate_review(target, application_ids)
+    write_csv_atomic(paths.review, REVIEW_COLUMNS, rows)
+    return dict(target)
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Atomically refresh job analytics")
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--sync-gmail", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--review-id")
+    parser.add_argument("--review-status", choices=("resolved", "ignored"))
     return parser
 
 
 def main() -> None:
-    args = _parser().parse_args()
+    parser = _parser()
+    args = parser.parse_args()
+    paths = RefreshPaths.for_root(args.root)
+    if bool(args.review_id) != bool(args.review_status):
+        parser.error("--review-id and --review-status must be used together")
+    if args.review_id:
+        if args.sync_gmail or args.dry_run:
+            parser.error("review resolution cannot be combined with refresh options")
+        print(json.dumps(
+            update_review_status(paths, args.review_id, args.review_status),
+            sort_keys=True,
+        ))
+        return
     summary = refresh(
-        RefreshPaths.for_root(args.root),
+        paths,
         client=None,
         sync_gmail=args.sync_gmail,
         now=datetime.now(timezone.utc),

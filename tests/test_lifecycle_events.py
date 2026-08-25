@@ -2,13 +2,30 @@ import unittest
 from datetime import datetime, timezone
 
 from analytics.events import backfill_events, event_id, merge_events
-from analytics.model import hash_source_ref
+from analytics.model import (
+    LIFECYCLE_EVENT_SOURCES,
+    LIFECYCLE_EVENT_TYPES,
+    hash_source_ref,
+)
 
 
 NOW = datetime(2026, 8, 24, tzinfo=timezone.utc)
 
 
 class LifecycleEventTests(unittest.TestCase):
+    def test_shared_lifecycle_contract_matches_the_spec(self):
+        self.assertEqual(
+            LIFECYCLE_EVENT_TYPES,
+            {
+                "discovered", "screened", "qualified", "drafting",
+                "submitted", "received", "viewed", "follow_up", "interview",
+                "rejected", "withdrawn", "offer",
+            },
+        )
+        self.assertEqual(
+            LIFECYCLE_EVENT_SOURCES,
+            {"tracker_backfill", "gmail", "user", "browser", "workflow"},
+        )
     def test_backfill_creates_discovery_submission_and_rejection(self):
         application = {
             "application_id": "app-1",

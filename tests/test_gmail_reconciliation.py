@@ -10,6 +10,7 @@ from unittest.mock import patch
 from analytics.gmail_sync import (
     ComposioClient,
     ComposioError,
+    ComposioUnavailableError,
     SyncProposal,
     classify_message,
     match_application,
@@ -165,6 +166,33 @@ class GmailReconciliationTests(unittest.TestCase):
 
         self.assertNotIn("do-not-leak", str(raised.exception))
 
+    @patch("analytics.gmail_sync.subprocess.run")
+    def test_missing_cli_is_an_expected_availability_error(self, run):
+        run.side_effect = FileNotFoundError("composio")
+        with self.assertRaises(ComposioUnavailableError):
+            ComposioClient().execute("GMAIL_GET_PROFILE", {"user_id": "me"})
+
+    @patch("analytics.gmail_sync.subprocess.run")
+    def test_disconnected_or_expired_auth_is_an_expected_availability_error(self, run):
+        for stderr in (
+            "Gmail connection not found",
+            "authentication expired",
+        ):
+            with self.subTest(stderr=stderr):
+                run.side_effect = subprocess.CalledProcessError(
+                    2, ["composio"], stderr=stderr
+                )
+                with self.assertRaises(ComposioUnavailableError):
+                    ComposioClient().execute(
+                        "GMAIL_GET_PROFILE", {"user_id": "me"}
+                    )
+
+    @patch("analytics.gmail_sync.subprocess.run")
+    def test_connected_timeout_is_not_an_availability_error(self, run):
+        run.side_effect = subprocess.TimeoutExpired(["composio"], 60)
+        with self.assertRaises(ComposioError) as raised:
+            ComposioClient().execute("GMAIL_GET_PROFILE", {"user_id": "me"})
+        self.assertNotIsInstance(raised.exception, ComposioUnavailableError)
     def test_client_rejects_any_account_other_than_job_search(self):
         with self.assertRaisesRegex(ValueError, "job-search"):
             ComposioClient(account="other")

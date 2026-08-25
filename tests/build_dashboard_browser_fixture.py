@@ -8,6 +8,7 @@ from dashboard.build import _load_inputs, build_snapshot, render_dashboard
 ROOT = Path(__file__).parents[1]
 OUTPUT = Path("/tmp/task9-dashboard-review-fixture.html")
 SHIFTED_OUTPUT = Path("/tmp/task11-dashboard-shifted-fixture.html")
+TWO_TIER_OUTPUT = Path("/tmp/task-final-dashboard-two-tier-fixture.html")
 
 APPLICATIONS = [
     {
@@ -61,6 +62,40 @@ EVENTS = [
         "occurred_at": "2026-08-22T08:00:00Z",
     },
 ]
+FEEDBACK = [
+    {
+        "feedback_id": "feedback-browser-observed",
+        "application_id": "app-browser-linked",
+        "occurred_at": "2026-08-21T10:00:00Z",
+        "category": "metric_rigor_provenance",
+        "evidence_tier": "observed",
+        "evidence_excerpt": "The metric denominator needed clarification.",
+        "required_action": "State the denominator and provenance.",
+        "confidence": "0.92",
+    },
+    {
+        "feedback_id": "feedback-browser-inferred",
+        "application_id": "app-browser-linked",
+        "occurred_at": "2026-08-23T10:00:00Z",
+        "category": "technical_depth",
+        "evidence_tier": "inferred",
+        "evidence_excerpt": "A newer inferred implementation-depth signal.",
+        "required_action": "Lead with implementation evidence.",
+        "confidence": "0.70",
+    },
+]
+RULES = [
+    {
+        "rule_id": "rule-browser-priority",
+        "category": "metric_rigor_provenance",
+        "status": "active",
+        "required_action": "State the denominator and provenance.",
+        "confidence": 0.92,
+        "evidence_count": 2,
+        "evidence_tiers": ["observed"],
+        "source_feedback_ids": ["feedback-browser-observed"],
+    }
+]
 REVIEWS = [
     {
         "review_id": "review-browser-linked",
@@ -102,14 +137,15 @@ def main() -> None:
     snapshot = build_snapshot(
         APPLICATIONS,
         EVENTS,
-        [],
-        [],
+        FEEDBACK,
+        RULES,
         REVIEWS,
         CONFIG,
         date(2026, 8, 24),
     )
     template = (ROOT / "dashboard" / "template.html").read_text(encoding="utf-8")
     OUTPUT.write_text(render_dashboard(snapshot, template), encoding="utf-8")
+    TWO_TIER_OUTPUT.write_text(render_dashboard(snapshot, template), encoding="utf-8")
     applications, events, feedback, rules, reviews, config = _load_inputs(ROOT)
     shifted_applications = [*applications, {
         "application_id": "app-browser-shifted",
@@ -146,6 +182,7 @@ def main() -> None:
     )
     print(OUTPUT)
     print(SHIFTED_OUTPUT)
+    print(TWO_TIER_OUTPUT)
 
 if __name__ == "__main__":
     main()

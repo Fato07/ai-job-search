@@ -110,6 +110,22 @@ python3 -m dashboard.build --sync-gmail
 
 Open `dashboard/index.html` directly. The daily target is 100 screened opportunities; submission remains quality-gated and manual.
 
+> **Single writer only.** Do not run candidate screening import and Gmail
+> refresh/build at the same time, including from separate terminals. Both
+> commands update the canonical tracker and lifecycle ledger. If scheduled
+> sync, multiple writers, or concurrent automation is introduced, add one
+> shared lock covering screening and refresh or migrate the analytics state to
+> SQLite before enabling it.
+
+Resolve or ignore a reconciliation item by its stable review ID:
+
+```bash
+python3 -m analytics.refresh --review-id review-<sha256> --review-status resolved
+```
+
+Use `--review-status ignored` only after explicitly confirming the message
+should not affect tracker state.
+
 Import a candidate-batch CSV into the canonical tracker and lifecycle ledger:
 
 ```bash

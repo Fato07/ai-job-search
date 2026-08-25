@@ -1,14 +1,18 @@
 import hashlib
+import io
 import json
 import os
 import tempfile
 import threading
 import unittest
+import sys
 from dataclasses import FrozenInstanceError
+from contextlib import redirect_stdout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+import analytics.refresh as refresh_module
 from analytics.gmail_sync import (
     EXPECTED_MAILBOX,
     ComposioError,
@@ -25,8 +29,10 @@ from analytics.model import (
     read_csv_rows,
     write_csv_atomic,
 )
+from analytics.refresh import RefreshPaths, refresh, update_review_status
+from analytics.screening import SCREENING_COLUMNS, ingest_screening_rows
+from dashboard.build import _load_inputs, build_snapshot
 from analytics.refresh import RefreshPaths, refresh
-
 FIXED_NOW = datetime(2026, 8, 24, tzinfo=timezone.utc)
 
 
@@ -178,10 +184,13 @@ class AtomicRefreshTests(unittest.TestCase):
             company="TestCo",
             role="Applied AI Engineer",
             role_family="applied_ai",
-            geography="EEA",
             role_type="Full-time",
+            geography="EEA",
+            logistics_status="unknown",
+            screening_decision="pending",
             stage="prospect",
             status="PROSPECT",
+            status_updated_at="2026-08-10",
         )
         write_csv_atomic(paths.tracker, TRACKER_COLUMNS, [application])
         write_csv_atomic(paths.events, EVENT_COLUMNS, [])
@@ -190,6 +199,14 @@ class AtomicRefreshTests(unittest.TestCase):
         paths.rules.write_text("[]\n", encoding="utf-8")
         paths.checkpoint.write_text(
             json.dumps({"last_successful_at": None}) + "\n",
+            encoding="utf-8",
+        )
+        (paths.root / "analytics" / "config.json").write_text(
+            json.dumps({
+                "daily_screening_target": 100,
+                "daily_submission_soft_capacity": 20,
+                "reporting_timezone": "Europe/Tallinn",
+            }) + "\n",
             encoding="utf-8",
         )
         return paths
@@ -414,6 +431,7 @@ class AtomicRefreshTests(unittest.TestCase):
             "application_id": "app-1",
             "discovered_at": "2026-08-10",
             "company": "TestCo",
+            "submitted_at": "2026-08-12",
         }
         queries = _scan_queries([application], {"last_successful_at": None})
         combined = " ".join(queries).casefold()
@@ -454,6 +472,101 @@ class AtomicRefreshTests(unittest.TestCase):
             self.assertIn(f"subject:{subject_term}", combined.replace('"', ""))
         self.assertIn("-from:jobalerts-noreply@linkedin.com", combined)
 
+    def test_two_hundred_screened_companies_keep_company_queries_bounded_to_submissions(self):
+        applications = []
+        for index in range(200):
+            applications.append({
+                "application_id": f"app-screened-{index}",
+                "discovered_at": "2026-08-10",
+                "company": f"Screened Company {index:03d}",
+                "submitted_at": "",
+                "stage": "prospect",
+            })
+        for index in (3, 77, 155):
+            applications[index]["submitted_at"] = f"2026-08-{20 + index % 3:02d}"
+            applications[index]["stage"] = "submitted"
+
+        queries = _scan_queries(applications, {"last_successful_at": None})
+        combined = " ".join(queries).casefold()
+
+        self.assertLessEqual(len(queries), 32)
+        for index in (3, 77, 155):
+            self.assertIn(f'"screened company {index:03d}"', combined)
+        self.assertNotIn('"screened company 000"', combined)
+        self.assertIn("application status", combined)
+
+    def test_company_query_saturation_degrades_to_broad_coverage(self):
+        applications = [
+            {
+                "application_id": f"app-submitted-{index}",
+                "discovered_at": "2026-01-01",
+                "company": f"Submitted Company {index:03d}",
+                "submitted_at": f"2026-08-{1 + index % 24:02d}",
+                "stage": "submitted" if index < 150 else "closed",
+            }
+            for index in range(200)
+        ]
+
+        queries = _scan_queries(applications, {"last_successful_at": None})
+        combined = " ".join(queries).casefold()
+
+        self.assertEqual(len(queries), 32)
+        self.assertIn('"submitted company 143"', combined)
+        self.assertNotIn('"submitted company 199"', combined)
+        self.assertIn("decided not to move forward", combined)
+    def test_screening_import_flows_through_no_sync_refresh_and_dashboard_build(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._paths(Path(tmp))
+            applications = read_csv_rows(paths.tracker, TRACKER_COLUMNS)
+            events = read_csv_rows(paths.events, EVENT_COLUMNS)
+            candidate = {
+                column: value
+                for column, value in {
+                    "discovered_at": "2026-08-24",
+                    "company": "Flow Co",
+                    "sector": "AI",
+                    "role": "Applied AI Engineer",
+                    "role_family": "applied_ai",
+                    "role_type": "Full-time",
+                    "geography": "",
+                    "logistics_status": "",
+                    "channel": "Careers",
+                    "screening_decision": "qualified",
+                    "screening_reason": "strong fit",
+                    "fit_score": "91",
+                    "fit_label": "Strong",
+                    "source": "https://jobs.test/flow",
+                }.items()
+                if column in SCREENING_COLUMNS
+            }
+            applications, events, summary = ingest_screening_rows(
+                [candidate], applications, events, FIXED_NOW,
+                config={"max_active_applications_per_company": 2},
+            )
+            write_csv_atomic(paths.tracker, TRACKER_COLUMNS, applications)
+            write_csv_atomic(paths.events, EVENT_COLUMNS, events)
+
+            refreshed = refresh(
+                paths, client=None, sync_gmail=False, now=FIXED_NOW
+            )
+            loaded = _load_inputs(paths.root)
+            snapshot = build_snapshot(
+                *loaded[:-1],
+                config=loaded[-1],
+                today=FIXED_NOW.date(),
+            )
+
+            self.assertEqual(summary.imported, 1)
+            self.assertEqual(refreshed.events_added, 0)
+            self.assertIn(
+                "workflow",
+                {
+                    event["source"]
+                    for event in read_csv_rows(paths.events, EVENT_COLUMNS)
+                },
+            )
+            self.assertEqual(snapshot["today"]["screened"], 1)
+            self.assertEqual(snapshot["today"]["qualified"], 1)
 
     def test_union_queries_deduplicate_the_same_hashed_source_identity(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -892,6 +1005,123 @@ class AtomicRefreshTests(unittest.TestCase):
             self.assertEqual(first.events_added, 1)
             self.assertEqual(second.events_added, 0)
             self.assertEqual(len(read_csv_rows(paths.events, EVENT_COLUMNS)), 1)
+    def test_pending_review_upserts_when_candidate_set_grows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._paths(Path(tmp))
+            applications = read_csv_rows(paths.tracker, TRACKER_COLUMNS)
+            second = {**applications[0], "application_id": "app-2", "role": "ML Engineer"}
+            write_csv_atomic(paths.tracker, TRACKER_COLUMNS, [*applications, second])
+            message = self._message(
+                "evolving-review-id",
+                body="We will not progress with your application.",
+                role="",
+            )
+            refresh(
+                paths,
+                client=RecordingMailboxClient([message]),
+                sync_gmail=True,
+                now=FIXED_NOW,
+            )
+            first = read_csv_rows(paths.review, REVIEW_COLUMNS)[0]
+            third = {**applications[0], "application_id": "app-3", "role": "AI Platform Engineer"}
+            write_csv_atomic(paths.tracker, TRACKER_COLUMNS, [*applications, second, third])
+
+            refresh(
+                paths,
+                client=RecordingMailboxClient([message]),
+                sync_gmail=True,
+                now=FIXED_NOW + timedelta(days=1),
+            )
+            evolved = read_csv_rows(paths.review, REVIEW_COLUMNS)
+
+            self.assertEqual(len(evolved), 1)
+            self.assertEqual(evolved[0]["source_ref"], first["source_ref"])
+            self.assertGreater(
+                len(json.loads(evolved[0]["candidate_application_ids"])),
+                len(json.loads(first["candidate_application_ids"])),
+            )
+
+    def test_manual_review_resolution_persists_across_overlap_sync(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._paths(Path(tmp))
+            applications = read_csv_rows(paths.tracker, TRACKER_COLUMNS)
+            second = {**applications[0], "application_id": "app-2", "role": "ML Engineer"}
+            write_csv_atomic(paths.tracker, TRACKER_COLUMNS, [*applications, second])
+            message = self._message(
+                "manual-review-id",
+                body="We will not progress with your application.",
+                role="",
+            )
+            refresh(
+                paths,
+                client=RecordingMailboxClient([message]),
+                sync_gmail=True,
+                now=FIXED_NOW,
+            )
+            review_id = read_csv_rows(paths.review, REVIEW_COLUMNS)[0]["review_id"]
+            output = io.StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "analytics.refresh",
+                    "--root",
+                    str(paths.root),
+                    "--review-id",
+                    review_id,
+                    "--review-status",
+                    "ignored",
+                ],
+            ), redirect_stdout(output):
+                refresh_module.main()
+            self.assertEqual(json.loads(output.getvalue())["status"], "ignored")
+            refresh(
+                paths,
+                client=RecordingMailboxClient([message]),
+                sync_gmail=True,
+                now=FIXED_NOW + timedelta(days=1),
+            )
+
+            rows = read_csv_rows(paths.review, REVIEW_COLUMNS)
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["status"], "ignored")
+
+    def test_later_unique_match_removes_pending_review_atomically(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._paths(Path(tmp))
+            applications = read_csv_rows(paths.tracker, TRACKER_COLUMNS)
+            second = {**applications[0], "application_id": "app-2", "role": "ML Engineer"}
+            write_csv_atomic(paths.tracker, TRACKER_COLUMNS, [*applications, second])
+            ambiguous = self._message(
+                "later-unique-id",
+                body="We will not progress with your application.",
+                role="",
+            )
+            refresh(
+                paths,
+                client=RecordingMailboxClient([ambiguous]),
+                sync_gmail=True,
+                now=FIXED_NOW,
+            )
+            self.assertEqual(len(read_csv_rows(paths.review, REVIEW_COLUMNS)), 1)
+
+            unique = self._message(
+                "later-unique-id",
+                body="We will not progress with your application for Applied AI Engineer.",
+                role="Applied AI Engineer",
+            )
+            refresh(
+                paths,
+                client=RecordingMailboxClient([unique]),
+                sync_gmail=True,
+                now=FIXED_NOW + timedelta(days=1),
+            )
+
+            self.assertEqual(read_csv_rows(paths.review, REVIEW_COLUMNS), [])
+            self.assertEqual(
+                read_csv_rows(paths.tracker, TRACKER_COLUMNS)[0]["stage"],
+                "closed",
+            )
 
     def test_conflicting_duplicate_event_identity_is_rejected_atomically(self):
         with tempfile.TemporaryDirectory() as tmp:

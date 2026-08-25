@@ -49,7 +49,7 @@ def candidate(**overrides):
         "role_family": "applied_ai",
         "role_type": "Full-time",
         "geography": "Remote Europe",
-        "logistics_status": "clear",
+        "logistics_status": "pass",
         "channel": "Careers",
         "screening_decision": "qualified",
         "screening_reason": "strong fit",
@@ -129,8 +129,20 @@ class ScreeningIngestTests(unittest.TestCase):
         )
         self.assertNotIn("submitted", {event["event_type"] for event in events})
         self.assertTrue(all(set(event) == set(EVENT_COLUMNS) for event in events))
+        self.assertTrue(all(event["source"] == "workflow" for event in events))
         self.assertEqual(summary.imported, 1)
         self.assertEqual(summary.qualified, 1)
+
+    def test_missing_geography_and_logistics_normalize_to_unknown(self):
+        applications, _, _ = ingest_screening_rows(
+            [candidate(geography="", logistics_status="")],
+            [],
+            [],
+            NOW,
+            config=CONFIG,
+        )
+        self.assertEqual(applications[0]["geography"], "unknown")
+        self.assertEqual(applications[0]["logistics_status"], "unknown")
 
     def test_invalid_screening_decision_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "invalid screening_decision"):

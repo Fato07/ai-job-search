@@ -19,6 +19,15 @@ class TrackerMigrationTests(unittest.TestCase):
         self.assertEqual(migrated[1]["stage"], "closed")
         self.assertEqual(migrated[2]["screening_decision"], "rejected")
         self.assertEqual(len({row["application_id"] for row in migrated}), len(migrated))
+        self.assertTrue(all(row["geography"] == "unknown" for row in migrated))
+        self.assertTrue(all(row["logistics_status"] == "unknown" for row in migrated))
+        self.assertTrue(
+            all(
+                row["screening_reason"]
+                for row in migrated
+                if row["screening_decision"] == "rejected"
+            )
+        )
 
     def test_migration_is_idempotent(self):
         legacy = read_csv_rows(FIXTURES / "legacy_tracker.csv", {"date"})
@@ -43,6 +52,10 @@ class TrackerMigrationTests(unittest.TestCase):
         self.assertEqual(migrated[0]["screening_decision"], "rejected")
         self.assertEqual(migrated[0]["submitted_at"], "")
         self.assertEqual(migrated[0]["status_updated_at"], "2026-08-05")
+        self.assertEqual(
+            migrated[0]["screening_reason"],
+            "legacy_screening:closed_without_submission",
+        )
 
     def test_migration_redacts_personal_addresses_from_contact_and_notes(self):
         legacy = read_csv_rows(FIXTURES / "legacy_tracker.csv", {"date"})

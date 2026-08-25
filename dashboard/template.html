@@ -273,6 +273,25 @@
     .ledger-item + .ledger-item { border-inline-start: 1px solid var(--rule); }
     .metric-value { display: block; font-size: 1.35rem; font-weight: 760; }
     .metric-label { display: block; color: var(--ink-muted); font-size: 0.75rem; overflow-wrap: anywhere; }
+    .next-feedback-action {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: minmax(12rem, 1fr) minmax(0, 3fr) auto;
+      gap: var(--space-4);
+      align-items: center;
+      padding: var(--space-4);
+      border: 2px solid var(--signal-strong);
+      background: var(--signal-soft);
+    }
+    .next-feedback-action p { margin: 0; }
+    .next-action-label {
+      color: var(--signal-strong);
+      font-size: 0.75rem;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .next-action-copy { font-weight: 720; }
+    .next-action-meta { color: var(--ink-muted); font-size: 0.8125rem; }
     .two-column { display: grid; grid-template-columns: minmax(0, 7fr) minmax(18rem, 5fr); gap: var(--space-6); }
     .panel { min-width: 0; border-block: 1px solid var(--rule-strong); padding-block: var(--space-4); }
     .panel h3 { margin-block-end: var(--space-3); font-size: 1rem; }
@@ -418,6 +437,7 @@
     @media (max-width: 72rem) {
       #command-kpis { display: block; }
       .ledger-strip { margin-block-start: var(--space-3); }
+      .next-feedback-action { margin-block-start: var(--space-3); }
       .filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .ledger-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
       .ledger-item:nth-child(5) { border-inline-start: 0; }
@@ -462,6 +482,7 @@
       .ledger-item:nth-child(odd) { border-inline-start: 0; }
       .ledger-item:nth-child(even) { border-inline-start: 1px solid var(--rule); }
       .ledger-item:nth-child(n+3) { border-block-start: 1px solid var(--rule); }
+      .next-feedback-action { grid-template-columns: 1fr; }
       .feedback-summary { grid-template-columns: 1fr; }
       .feedback-summary > div + div { border-inline-start: 0; border-block-start: 1px solid var(--rule); }
       summary { grid-template-columns: minmax(0, 1fr) auto; }
@@ -686,7 +707,7 @@
           if (currentState.channel && row.channel !== currentState.channel) return false;
           if (currentState.stage && row.stage !== currentState.stage) return false;
           if (currentState.fit_band && row.fit_band !== currentState.fit_band) return false;
-          if (currentState.evidence_tier && row.feedback_evidence_tier !== currentState.evidence_tier) return false;
+          if (currentState.evidence_tier && !row.feedback_evidence_tiers.includes(currentState.evidence_tier)) return false;
           if (currentState.logistics_status && row.logistics_status !== currentState.logistics_status) return false;
           if (currentState.seniority && row.seniority !== currentState.seniority) return false;
           if (feedbackIds && !feedbackIds.has(row.application_id)) return false;
@@ -728,20 +749,27 @@
         const submitted = todayCount("submitted");
         const gateRejections = todayCount("rejected_by_gate");
         const followUps = todayCount("follow_ups");
-        const ambiguousSet = new Set(DATA.data_quality.ambiguous_statuses);
+        const ambiguous = DATA.data_quality.review_queue.items.filter((item) =>
+          item.candidate_application_ids.length === 0
+          || item.candidate_application_ids.some((applicationId) => ids.has(applicationId))
+        ).length;
         const staleSet = new Set(DATA.data_quality.stale_rows);
-        const ambiguous = rows.filter((row) => ambiguousSet.has(row.application_id)).length;
         const stale = rows.filter((row) => staleSet.has(row.application_id)).length;
         const screeningRatio = Math.min(100, screened / DATA.today.screening_target * 100);
         const submissionRatio = Math.min(100, submitted / DATA.today.submission_soft_capacity * 100);
         document.getElementById("coverage-note").innerHTML = DATA.data_quality.lifecycle_coverage.insufficient
           ? `<div class="coverage-note" role="note"><strong>Coverage Gap</strong><span>Historical ${escapeHTML(DATA.data_quality.lifecycle_coverage.missing_event_types.join(" and "))} events are missing; early-funnel conversion is not inferred. Today’s visible counts remain exact.</span></div>` : "";
+        const topAction = DATA.feedback.top_action;
+        const actionPanel = topAction
+          ? `<article id="next-feedback-action" class="next-feedback-action"><div><p class="next-action-label">What changes the next application?</p><p class="next-action-meta">Highest-confidence active rule</p></div><p class="next-action-copy">${escapeHTML(topAction.required_action)}</p><p class="next-action-meta"><strong>${escapeHTML(pretty(topAction.category))}</strong><br>${escapeHTML(percentFormat.format(topAction.confidence))} confidence · ${numberFormat.format(topAction.evidence_count)} evidence</p></article>`
+          : `<article id="next-feedback-action" class="next-feedback-action"><div><p class="next-action-label">What changes the next application?</p></div><p class="next-action-copy">No active feedback action is recorded.</p><p class="next-action-meta">Review the feedback ledger before drafting.</p></article>`;
         document.getElementById("command-kpis").innerHTML = `<div class="throughput-bands">
           <article class="throughput-band"><div class="band-top"><p class="band-label">Screening Throughput</p><p class="band-value">${numberFormat.format(screened)} / ${numberFormat.format(DATA.today.screening_target)}</p></div><div class="meter" aria-hidden="true"><span style="width:${screeningRatio}%"></span></div><p class="band-note">Target: ${numberFormat.format(DATA.today.screening_target)} screened, separate from submissions.</p></article>
           <article class="throughput-band"><div class="band-top"><p class="band-label">Submission Capacity</p><p class="band-value">${numberFormat.format(submitted)} / ${numberFormat.format(DATA.today.submission_soft_capacity)}</p></div><div class="meter" aria-hidden="true"><span style="width:${submissionRatio}%"></span></div><p class="band-note">Capacity: ${numberFormat.format(DATA.today.submission_soft_capacity)}. Today’s submitted events only.</p></article>
         </div><div class="ledger-strip" aria-label="Operational counts">
-          ${[["Gate Rejections", gateRejections], ["Qualified", byStage("qualified")], ["Drafting", byStage("drafting")], ["Ready", byStage("ready")], ["Follow-ups", followUps], ["Stale", stale], ["Ambiguous", ambiguous]].map(([label, value]) => `<div class="ledger-item${label === "Stale" && value > 0 ? " ledger-alert" : ""}"><span class="metric-value">${numberFormat.format(value)}</span><span class="metric-label">${label}</span></div>`).join("")}
-        </div>`;
+          ${[["Gate Rejections", gateRejections], ["Qualified", byStage("qualified")], ["Drafting", byStage("drafting")], ["Ready", byStage("ready")], ["Follow-ups", followUps], ["Stale", stale], ["Ambiguous", ambiguous]].map(([label, value]) => `<div class="ledger-item${["Stale", "Ambiguous"].includes(label) && value > 0 ? " ledger-alert" : ""}"><span class="metric-value">${numberFormat.format(value)}</span><span class="metric-label">${label}</span></div>`).join("")}
+          <p class="visually-hidden">Ambiguous linked items follow application filters; unmapped items remain global.</p>
+        </div>${actionPanel}`;
       }
 
       function renderFunnel(rows) {

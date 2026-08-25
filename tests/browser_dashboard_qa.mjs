@@ -10,6 +10,7 @@ export default async function run(page) {
     return values.reduce((total, value) => total + Number.parseInt(value.replace(/\D/g, ''), 10), 0);
   };
   const regexEscape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pretty = (value) => String(value || 'Unknown').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
   const readEmbeddedSnapshot = async () => {
     const session = await page.context().newCDPSession(page);
     const response = await session.send('Runtime.evaluate', {
@@ -98,6 +99,17 @@ export default async function run(page) {
   await page.setViewportSize({ width: 1440, height: 1000 });
   const data = await assertDataDerivedBaseline('real');
   check('desktop filters expanded', await page.locator('#filter-disclosure').getAttribute('open') !== null);
+  const ambiguousKpi = page.locator('.ledger-item').filter({ hasText: 'Ambiguous' });
+  check(
+    'real ambiguous KPI uses pending review queue',
+    (await ambiguousKpi.locator('.metric-value').innerText()) === numberFormat.format(data.data_quality.review_queue.count),
+    await ambiguousKpi.innerText(),
+  );
+  const topAction = data.feedback.top_action;
+  const topActionText = await page.locator('#next-feedback-action').innerText();
+  check('real top feedback category visible', topActionText.includes(pretty(topAction.category)), topActionText);
+  check('real top feedback action visible', topActionText.includes(topAction.required_action), topActionText);
+  check('real top feedback confidence visible', topActionText.includes(percentFormat.format(topAction.confidence)), topActionText);
 
   await page.goto(dashboard);
   await page.waitForSelector('.pipeline-table tbody tr');
@@ -138,6 +150,14 @@ export default async function run(page) {
   const filteredSubmittedRow = filteredFunnelTable.getByRole('row', { name: /^Submitted\b/ });
   const expectedFilteredSubmitted = data.lifecycle_application_ids.submitted.filter((id) => filteredIds.has(id)).length;
   check('filtered cumulative funnel uses lifecycle IDs', await filteredSubmittedRow.getByRole('cell').innerText() === numberFormat.format(expectedFilteredSubmitted), await filteredSubmittedRow.innerText());
+  const expectedFilteredAmbiguous = data.data_quality.review_queue.items.filter((item) =>
+    item.candidate_application_ids.length === 0
+    || item.candidate_application_ids.some((applicationId) => filteredIds.has(applicationId))
+  ).length;
+  check(
+    'filtered ambiguous KPI keeps linked matches plus global items',
+    (await page.locator('.ledger-item').filter({ hasText: 'Ambiguous' }).locator('.metric-value').innerText()) === numberFormat.format(expectedFilteredAmbiguous),
+  );
   const filteredCalibrationTable = page.getByRole('table', { name: 'Text Summary: Fit-Band Event Progression' });
   const lifecycleSets = Object.fromEntries(
     ['submitted', 'responded', 'interviewed', 'offered'].map((name) => [name, new Set(data.lifecycle_application_ids[name])])
@@ -259,6 +279,13 @@ export default async function run(page) {
   await page.locator('#date-end').dispatchEvent('change');
   await page.waitForFunction(() => document.querySelector('#pipeline-count')?.textContent.startsWith('0 '));
   check('no-data states appear', await page.locator('.empty-state').count() >= 6, String(await page.locator('.empty-state').count()));
+  const expectedGlobalAmbiguous = data.data_quality.review_queue.items.filter(
+    (item) => item.candidate_application_ids.length === 0
+  ).length;
+  check(
+    'no-row filters retain only global ambiguous items',
+    (await page.locator('.ledger-item').filter({ hasText: 'Ambiguous' }).locator('.metric-value').innerText()) === numberFormat.format(expectedGlobalAmbiguous),
+  );
   check('empty states have next action', await page.locator('.empty-state [data-empty-action="reset"]').count() >= 6);
   await page.locator('#reset-filters').click();
 
@@ -341,6 +368,29 @@ export default async function run(page) {
   const reviewTargetId = await reviewFocusButton.getAttribute('data-focus-target');
   await reviewFocusButton.click();
   check('unmapped review action focuses rendered review item', await page.evaluate(() => document.activeElement?.id) === reviewTargetId);
+  check(
+    'mixed review KPI counts linked and global pending items',
+    (await page.locator('.ledger-item').filter({ hasText: 'Ambiguous' }).locator('.metric-value').innerText()) === '2',
+  );
+
+  await page.goto('file:///tmp/task-final-dashboard-two-tier-fixture.html');
+  await page.waitForSelector('.pipeline-table tbody tr');
+  const twoTierData = await readEmbeddedSnapshot();
+  const twoTierRow = twoTierData.pipeline.find(
+    (row) => row.application_id === 'app-browser-linked'
+  );
+  check(
+    'two-tier fixture preserves complete membership',
+    JSON.stringify(twoTierRow.feedback_evidence_tiers) === JSON.stringify(['inferred', 'observed']),
+    JSON.stringify(twoTierRow.feedback_evidence_tiers),
+  );
+  check('two-tier fixture latest scalar remains inferred', twoTierRow.feedback_evidence_tier === 'inferred');
+  await page.selectOption('#evidence-tier', 'observed');
+  await page.waitForFunction(() => document.querySelector('#pipeline-count')?.textContent.startsWith('1 '));
+  check('older observed tier membership remains filterable', (await page.locator('#pipeline-count').innerText()).startsWith('1 '));
+  await page.selectOption('#evidence-tier', 'inferred');
+  await page.waitForFunction(() => document.querySelector('#pipeline-count')?.textContent.startsWith('1 '));
+  check('latest inferred tier remains filterable', (await page.locator('#pipeline-count').innerText()).startsWith('1 '));
 
   await page.goto('file:///tmp/task11-dashboard-shifted-fixture.html');
   const shiftedData = await assertDataDerivedBaseline('shifted fixture');

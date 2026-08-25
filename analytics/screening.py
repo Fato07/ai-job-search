@@ -16,12 +16,15 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from analytics.events import event_id, merge_events
 from analytics.model import (
     EVENT_COLUMNS,
+    SCREENING_DECISIONS,
     TRACKER_COLUMNS,
     hash_source_ref,
+    read_tracker_rows,
     read_csv_rows,
     slugify,
     stable_application_id,
     validate_rows,
+    validate_tracker_rows,
 )
 
 SCREENING_COLUMNS = (
@@ -40,7 +43,6 @@ SCREENING_COLUMNS = (
     "fit_label",
     "source",
 )
-_VALID_DECISIONS = frozenset(("pending", "rejected", "qualified"))
 _ACTIVE_STAGES = frozenset(("qualified", "submitted", "interview", "offer"))
 _APPROVED_ROLE_FAMILIES = frozenset(
     ("forward_deployed", "ai_security", "ai_platform", "applied_ai")
@@ -194,7 +196,7 @@ def _screening_event(
         "application_id": application_id,
         "occurred_at": occurred_at,
         "event_type": event_type,
-        "source": "screening_batch",
+        "source": "workflow",
         "detail": detail,
         "source_ref": source_ref,
         "created_at": created_at,
@@ -227,8 +229,8 @@ def _tracker_row(
         "role": role,
         "role_family": candidate["role_family"],
         "role_type": candidate["role_type"],
-        "geography": candidate["geography"],
-        "logistics_status": candidate["logistics_status"],
+        "geography": candidate["geography"].strip() or "unknown",
+        "logistics_status": candidate["logistics_status"].strip() or "unknown",
         "channel": candidate["channel"],
         "screening_decision": decision,
         "screening_reason": screening_reason,
@@ -266,7 +268,7 @@ def ingest_screening_rows(
         if set(candidate) != set(SCREENING_COLUMNS):
             raise ValueError(f"screening row {index} columns differ from schema")
         decision = candidate["screening_decision"].strip().casefold()
-        if decision not in _VALID_DECISIONS:
+        if decision not in SCREENING_DECISIONS:
             raise ValueError(
                 f"screening row {index} invalid screening_decision: "
                 f"{candidate['screening_decision']!r}"
@@ -287,6 +289,10 @@ def ingest_screening_rows(
         if decision == "qualified" and not gate.passed:
             decision = "rejected"
             screening_reason = gate.reason
+        if decision == "rejected" and not screening_reason.strip():
+            raise ValueError(
+                f"screening row {index} requires screening_reason when rejected"
+            )
 
         application = _tracker_row(candidate, decision, screening_reason)
         updated_applications.append(application)
@@ -508,7 +514,7 @@ def _write_ledgers_transaction(
 ) -> None:
     tracker_rows = list(applications)
     event_rows = list(events)
-    validate_rows(tracker_rows, TRACKER_COLUMNS, unique_key="application_id")
+    validate_tracker_rows(tracker_rows, context=str(tracker_path))
     validate_rows(event_rows, EVENT_COLUMNS, unique_key="event_id")
     tracker_stage: Path | None = None
     events_stage: Path | None = None
@@ -562,7 +568,7 @@ def main() -> None:
     args = parser.parse_args()
     _recover_transaction(args.tracker, args.events)
 
-    applications = read_csv_rows(args.tracker, TRACKER_COLUMNS)
+    applications = read_tracker_rows(args.tracker)
     existing_events = (
         read_csv_rows(args.events, EVENT_COLUMNS)
         if args.events.exists() and args.events.stat().st_size
@@ -575,7 +581,7 @@ def main() -> None:
         datetime.now(timezone.utc),
         config=_load_config(args.config),
     )
-    validate_rows(updated_applications, TRACKER_COLUMNS, unique_key="application_id")
+    validate_tracker_rows(updated_applications, context=str(args.tracker))
     validate_rows(updated_events, EVENT_COLUMNS, unique_key="event_id")
     _write_ledgers_transaction(
         args.tracker, updated_applications, args.events, updated_events

@@ -1,8 +1,24 @@
+import io
+import json
+import re
+import tempfile
 import unittest
+from contextlib import redirect_stdout
 from datetime import date
 from pathlib import Path
-import re
+from unittest.mock import patch
 
+import dashboard.build as dashboard_build
+from analytics.gmail_sync import ComposioUnavailableError
+from analytics.model import (
+    EVENT_COLUMNS,
+    FEEDBACK_COLUMNS,
+    REVIEW_COLUMNS,
+    TRACKER_COLUMNS,
+    stable_application_id,
+    write_csv_atomic,
+)
+from analytics.refresh import RefreshPaths
 from dashboard.build import build_snapshot, render_dashboard
 
 
@@ -56,6 +72,7 @@ FEEDBACK = [{
     "evidence_excerpt": "The metric omitted its denominator.",
     "required_action": "State the denominator and source.",
     "confidence": "0.95",
+    "occurred_at": "2026-08-20T10:00:00Z",
 }]
 RULES = [{
     "rule_id": "rule-1",
@@ -63,6 +80,7 @@ RULES = [{
     "status": "active",
     "required_action": "State the denominator and source.",
     "confidence": 0.95,
+    "evidence_count": 1,
     "evidence_tiers": ["observed"],
     "source_feedback_ids": ["fb-1"],
 }]
@@ -168,7 +186,7 @@ class DashboardBuildTests(unittest.TestCase):
             ("s-6", "app-6", "submitted", "2026-08-19T11:00:00Z"),
             ("r-6", "app-6", "rejected", "2026-08-24T11:00:00Z"),
             ("s-7", "app-7", "submitted", "2026-08-20T12:00:00Z"),
-            ("p-7", "app-7", "responded", "2026-08-21T12:00:00Z"),
+            ("p-7", "app-7", "received", "2026-08-21T12:00:00Z"),
             ("i-7", "app-7", "interview", "2026-08-23T12:00:00Z"),
         ]
         events.extend(event(*transition) for transition in transitions)
@@ -382,6 +400,65 @@ class DashboardBuildTests(unittest.TestCase):
         self.assertEqual(snapshot["filters"]["evidence_tier"], ["explicit", "observed"])
         self.assertEqual(snapshot["filters"]["feedback_category"], ["metric_rigor_provenance", "technical_depth"])
         self.assertEqual(snapshot["filters"]["date_range"], {"start": "2026-08-23", "end": "2026-08-24"})
+    def test_pipeline_preserves_all_feedback_tiers_and_latest_scalar(self):
+        feedback = [
+            FEEDBACK[0],
+            {
+                "feedback_id": "fb-newer",
+                "application_id": "app-1",
+                "occurred_at": "2026-08-23T10:00:00Z",
+                "category": "technical_depth",
+                "evidence_tier": "inferred",
+                "evidence_excerpt": "A newer inferred signal.",
+                "required_action": "Verify implementation evidence.",
+                "confidence": "0.6",
+            },
+        ]
+
+        pipeline = self.build(feedback=feedback)["pipeline"][0]
+
+        self.assertEqual(pipeline["feedback_evidence_tier"], "inferred")
+        self.assertEqual(
+            pipeline["feedback_evidence_tiers"],
+            ["inferred", "observed"],
+        )
+        self.assertEqual(pipeline["feedback_ids"], ["fb-1", "fb-newer"])
+
+    def test_highest_priority_active_feedback_action_is_deterministic(self):
+        rules = [
+            {
+                **RULES[0],
+                "rule_id": "rule-z",
+                "confidence": 0.9,
+                "evidence_count": 3,
+            },
+            {
+                **RULES[0],
+                "rule_id": "rule-b",
+                "category": "technical_depth",
+                "required_action": "Lead with implementation evidence.",
+                "confidence": 0.95,
+                "evidence_count": 2,
+            },
+            {
+                **RULES[0],
+                "rule_id": "rule-a",
+                "category": "application_quality",
+                "required_action": "Name the verified evidence.",
+                "confidence": 0.95,
+                "evidence_count": 2,
+            },
+        ]
+
+        action = self.build(rules=rules)["feedback"]["top_action"]
+
+        self.assertEqual(action, {
+            "rule_id": "rule-a",
+            "category": "application_quality",
+            "required_action": "Name the verified evidence.",
+            "confidence": 0.95,
+            "evidence_count": 2,
+        })
 
     def test_data_quality_reports_missing_ambiguous_duplicate_stale_and_orphan_rows(self):
         applications = [
@@ -446,6 +523,14 @@ class DashboardBuildTests(unittest.TestCase):
                 "role": "Unknown",
                 "reason": "Resolve without an application ID.",
             },
+            {
+                "review_id": "review-ignored",
+                "candidate_application_ids": '["app-1"]',
+                "status": "ignored",
+                "company": "Alpha",
+                "role": "Applied AI Engineer",
+                "reason": "Already reviewed.",
+            },
         ]
 
         quality = self.build(review_items=review_items)["data_quality"]
@@ -475,6 +560,69 @@ class DashboardBuildTests(unittest.TestCase):
                         "candidate_application_ids": value,
                         "status": "pending",
                     }])
+
+    def test_sync_gmail_cli_skips_only_unavailable_composio_and_builds_local_dashboard(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = RefreshPaths.for_root(root)
+            application = {column: "" for column in TRACKER_COLUMNS}
+            application.update(
+                application_id=stable_application_id(
+                    "2026-08-17", "Local Co", "Applied AI Engineer"
+                ),
+                discovered_at="2026-08-17",
+                company="Local Co",
+                role="Applied AI Engineer",
+                role_family="applied_ai",
+                geography="unknown",
+                logistics_status="unknown",
+                screening_decision="pending",
+                stage="prospect",
+                status="PROSPECT",
+                status_updated_at="2026-08-17",
+            )
+            write_csv_atomic(paths.tracker, TRACKER_COLUMNS, [application])
+            write_csv_atomic(paths.events, EVENT_COLUMNS, [])
+            write_csv_atomic(paths.feedback, FEEDBACK_COLUMNS, [])
+            write_csv_atomic(paths.review, REVIEW_COLUMNS, [])
+            paths.rules.write_text("[]\n", encoding="utf-8")
+            paths.checkpoint.write_text(
+                '{"last_successful_at":null}\n',
+                encoding="utf-8",
+            )
+            (root / "analytics" / "config.json").write_text(
+                json.dumps(CONFIG) + "\n",
+                encoding="utf-8",
+            )
+            (root / "dashboard").mkdir()
+            (root / "dashboard" / "template.html").write_text(
+                "<html><script>window.DATA=__DASHBOARD_DATA__</script></html>",
+                encoding="utf-8",
+            )
+            checkpoint_before = paths.checkpoint.read_bytes()
+            output = io.StringIO()
+
+            with patch(
+                "analytics.refresh.refresh",
+                side_effect=ComposioUnavailableError(
+                    "Composio Gmail connection is unavailable"
+                ),
+            ), patch("dashboard.build.Path.cwd", return_value=root), redirect_stdout(output):
+                dashboard_build.main(["--sync-gmail", "--today", "2026-08-24"])
+
+            self.assertIn("gmail_sync: skipped", output.getvalue())
+            self.assertTrue((root / "dashboard" / "index.html").is_file())
+            self.assertEqual(paths.checkpoint.read_bytes(), checkpoint_before)
+
+    def test_sync_gmail_cli_keeps_nonavailability_errors_fail_closed(self):
+        from analytics.gmail_sync import ComposioError
+
+        with patch(
+            "analytics.refresh.refresh",
+            side_effect=ComposioError("Composio mailbox mismatch"),
+        ):
+            with self.assertRaisesRegex(ComposioError, "mailbox mismatch"):
+                dashboard_build.main(["--sync-gmail", "--today", "2026-08-24"])
 
     def test_render_is_deterministic_html_safe_and_self_contained(self):
         template = "<html><script>window.DATA=__DASHBOARD_DATA__</script></html>"
@@ -554,6 +702,12 @@ class DashboardBuildTests(unittest.TestCase):
         self.assertIn('class="quality-targets"', lowered)
         self.assertIn('data-focus-target=', lowered)
         self.assertIn("<strong>category:</strong>", lowered)
+        self.assertIn('id="next-feedback-action"', lowered)
+        self.assertIn("feedback_evidence_tiers.includes", template)
+        self.assertIn(
+            "Ambiguous linked items follow application filters",
+            template,
+        )
 
     def test_generated_dashboard_embeds_snapshot_without_external_dependencies(self):
         template_path = Path(__file__).parents[1] / "dashboard" / "template.html"

@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from analytics.model import LIFECYCLE_EVENT_TYPES, REVIEW_STATUSES, TRACKER_STAGES
+
 _DATA_MARKER = "__DASHBOARD_DATA__"
 _DEFAULT_TEMPLATE = (
     "<!doctype html><html><head><meta charset=\"utf-8\"><title>Job analytics</title>"
@@ -22,13 +24,18 @@ _EVENT_TYPES = (
     "discovered", "screened", "qualified", "submitted", "responded",
     "interviewed", "offered",
 )
-_RESPONSE_EVENTS = frozenset({"responded", "rejected", "interview", "offer"})
-_DECISION_EVENTS = frozenset({"rejected", "withdrawn", "offer"})
-_ACTIVE_STAGES = frozenset({
-    "prospect", "qualified", "drafting", "ready", "submitted", "response",
-    "interview", "offer",
-})
-_KNOWN_STAGES = _ACTIVE_STAGES | {"closed"}
+_RESPONSE_EVENTS = frozenset(
+    event_type
+    for event_type in ("received", "rejected", "interview", "offer")
+    if event_type in LIFECYCLE_EVENT_TYPES
+)
+_DECISION_EVENTS = frozenset(
+    event_type
+    for event_type in ("rejected", "withdrawn", "offer")
+    if event_type in LIFECYCLE_EVENT_TYPES
+)
+_ACTIVE_STAGES = TRACKER_STAGES - {"closed"}
+_KNOWN_STAGES = TRACKER_STAGES
 _NEXT_ACTION = {
     "prospect": "Screen opportunity",
     "qualified": "Draft application",
@@ -570,17 +577,46 @@ def _feedback_snapshot(
                 for row in sources
                 if _text(row.get("evidence_tier"))
             })
+        evidence_count_value = rule.get("evidence_count", len(source_ids))
+        try:
+            evidence_count = int(evidence_count_value)
+        except (TypeError, ValueError):
+            evidence_count = len(source_ids)
         lineage.append({
             "rule_id": _text(rule.get("rule_id")),
             "category": _text(rule.get("category")) or "unknown",
             "status": status or "unknown",
             "required_action": _text(rule.get("required_action")),
             "confidence": confidence(rule.get("confidence")),
+            "evidence_count": max(0, evidence_count),
             "evidence_tiers": evidence_tiers,
             "feedback_ids": source_ids,
             "application_ids": application_ids,
             "source_feedback": sources,
         })
+    active_actions = [
+        row
+        for row in lineage
+        if row["status"] == "active" and row["required_action"]
+    ]
+    active_actions.sort(key=lambda row: (
+        -(row["confidence"] if row["confidence"] is not None else -1.0),
+        -row["evidence_count"],
+        row["rule_id"],
+    ))
+    top_action = None
+    if active_actions:
+        selected = active_actions[0]
+        top_action = {
+            key: selected[key]
+            for key in (
+                "rule_id",
+                "category",
+                "required_action",
+                "confidence",
+                "evidence_count",
+            )
+        }
     return {
         "category_counts": dict(sorted(category_counts.items())),
         "category_application_ids": {
@@ -589,23 +625,11 @@ def _feedback_snapshot(
         },
         "evidence_tier_counts": dict(sorted(evidence_counts.items())),
         "rule_status_counts": status_counts,
+        "top_action": top_action,
         "lineage": lineage,
     }
 
 
-def _latest_feedback(
-    application_id: str, feedback: Sequence[Mapping[str, object]]
-) -> Mapping[str, object] | None:
-    candidates = [row for row in feedback if _text(row.get("application_id")) == application_id]
-    if not candidates:
-        return None
-    return max(
-        candidates,
-        key=lambda row: (
-            _parse_timestamp(row.get("occurred_at")) or datetime.min.replace(tzinfo=timezone.utc),
-            _text(row.get("feedback_id")),
-        ),
-    )
 
 
 def _pipeline(
@@ -615,12 +639,26 @@ def _pipeline(
     today: date,
     reporting_zone: ZoneInfo,
 ) -> list[dict[str, object]]:
+    feedback_by_application: dict[str, list[Mapping[str, object]]] = defaultdict(list)
+    for feedback_row in feedback:
+        feedback_by_application[_text(feedback_row.get("application_id"))].append(
+            feedback_row
+        )
     rows: list[dict[str, object]] = []
     for application_id, application in sorted(applications.items()):
         events = grouped_events.get(application_id, ())
         submitted_at = _first_event(events, {"submitted"})
         latest_at = max((occurred_at for _, occurred_at in events), default=None)
-        latest_feedback = _latest_feedback(application_id, feedback)
+        linked_feedback = feedback_by_application.get(application_id, [])
+        latest_feedback = max(
+            linked_feedback,
+            key=lambda row: (
+                _parse_timestamp(row.get("occurred_at"))
+                or datetime.min.replace(tzinfo=timezone.utc),
+                _text(row.get("feedback_id")),
+            ),
+            default=None,
+        )
         stage = _text(application.get("stage")).casefold()
         score = _fit_score(application.get("fit_score"))
         rows.append({
@@ -646,6 +684,16 @@ def _pipeline(
             "fit_band": _fit_band(application.get("fit_score")),
             "latest_feedback_signal": _text(latest_feedback.get("signal")) if latest_feedback else "",
             "feedback_evidence_tier": _text(latest_feedback.get("evidence_tier")) if latest_feedback else "",
+            "feedback_evidence_tiers": sorted({
+                _text(row.get("evidence_tier"))
+                for row in linked_feedback
+                if _text(row.get("evidence_tier"))
+            }),
+            "feedback_ids": sorted({
+                _text(row.get("feedback_id"))
+                for row in linked_feedback
+                if _text(row.get("feedback_id"))
+            }),
             "next_action": _NEXT_ACTION.get(stage, "Review status"),
             "source": _text(application.get("source")),
         })
@@ -656,11 +704,13 @@ def _review_queue(
     review_items: Sequence[Mapping[str, object]],
     application_ids: set[str],
 ) -> dict[str, object]:
-    pending = [
-        dict(row)
-        for row in review_items
-        if _text(row.get("status")).casefold() in {"", "pending", "open"}
-    ]
+    pending = []
+    for row in review_items:
+        status = _text(row.get("status")).casefold()
+        if status not in REVIEW_STATUSES:
+            raise ValueError(f"invalid reconciliation review status: {status!r}")
+        if status == "pending":
+            pending.append(dict(row))
     pending.sort(key=lambda row: (_text(row.get("occurred_at")), _text(row.get("review_id")), _stable_json(row)))
     items: list[dict[str, object]] = []
     for row in pending:
@@ -1008,13 +1058,13 @@ def _load_inputs(root: Path) -> tuple[
     list[dict[str, object]], list[dict[str, str]], dict[str, object],
 ]:
     from analytics.model import (
-        EVENT_COLUMNS, FEEDBACK_COLUMNS, REVIEW_COLUMNS, TRACKER_COLUMNS,
-        read_csv_rows,
+        EVENT_COLUMNS, FEEDBACK_COLUMNS, REVIEW_COLUMNS,
+        read_csv_rows, read_tracker_rows,
     )
 
     analytics = root / "analytics"
     return (
-        read_csv_rows(root / "job_search_tracker.csv", TRACKER_COLUMNS),
+        read_tracker_rows(root / "job_search_tracker.csv"),
         read_csv_rows(analytics / "application_events.csv", EVENT_COLUMNS),
         read_csv_rows(analytics / "application_feedback.csv", FEEDBACK_COLUMNS),
         _load_json(analytics / "feedback_rules.json", list),
@@ -1041,14 +1091,18 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = _parser().parse_args(argv)
     root = Path.cwd()
     if args.sync_gmail:
+        from analytics.gmail_sync import ComposioUnavailableError
         from analytics.refresh import RefreshPaths, refresh
 
-        refresh(
-            RefreshPaths.for_root(root),
-            client=None,
-            sync_gmail=True,
-            now=datetime.now(timezone.utc),
-        )
+        try:
+            refresh(
+                RefreshPaths.for_root(root),
+                client=None,
+                sync_gmail=True,
+                now=datetime.now(timezone.utc),
+            )
+        except ComposioUnavailableError as exc:
+            print(f"gmail_sync: skipped ({exc})")
 
     applications, events, feedback, rules, review_items, config = _load_inputs(root)
     _, reporting_zone = _reporting_zone(config)
