@@ -32,7 +32,7 @@ export default async function run(page) {
     { name: /Cumulative Recorded Funnel/, axisTitle: 'Count', ticks: ['0', '50', '99'] },
     { name: /Fit-Band Event Progression/, axisTitle: 'Progression', ticks: ['0%', '50%', '100%'] },
     { name: /Feedback Categories/, axisTitle: 'Count', ticks: ['0', '9', '18'] },
-    { name: /Pipeline Aging Distribution/, axisTitle: 'Count', ticks: ['0', '31', '61'] },
+    { name: /Pipeline Aging Distribution/, axisTitle: 'Count', ticks: ['0', '31', '62'] },
   ]) {
     const chart = page.getByRole('img', { name: chartSpec.name });
     check(`${chartSpec.name.source} numeric baseline`, await chart.locator('.axis-line-strong').count() === 1);
@@ -48,9 +48,9 @@ export default async function run(page) {
   const globalCalibrationTable = page.getByRole('table', { name: 'Text Summary: Fit-Band Event Progression' });
   await assertCalibrationBand(globalCalibrationTable, 'global', '90-100', '26% response · 19 submitted · 5 responded · 0 interviewed · 0 offered');
   const dailyRows = page.locator('#time-series-chart .chart-table tbody tr');
-  check('daily cadence full continuous range', await dailyRows.count() === 55, String(await dailyRows.count()));
+  check('daily cadence full continuous range', await dailyRows.count() === 56, String(await dailyRows.count()));
   check('daily cadence starts at snapshot start', (await dailyRows.first().innerText()).includes('Jul 1, 2026'));
-  check('daily cadence ends at snapshot date', (await dailyRows.last().innerText()).includes('Aug 24, 2026'));
+  check('daily cadence ends at snapshot date', (await dailyRows.last().innerText()).includes('Aug 25, 2026'));
   check('daily cadence preserves zero days', await page.locator('#time-series-chart .chart-table tbody td:last-child').filter({ hasText: /^0$/ }).count() > 0);
   check('daily cadence total matches cumulative submitted', await numericTableTotal('#time-series-chart .chart-table') === 72);
 
@@ -119,11 +119,11 @@ export default async function run(page) {
   await page.locator('#reset-filters').click();
 
   const staleQuality = page.locator('#quality-list .quality-item').filter({ hasText: 'Stale Applications' });
-  check('all stale targets rendered', await staleQuality.locator('[data-application-id]').count() === 58, String(await staleQuality.locator('[data-application-id]').count()));
-  check('all stale targets disclosed by count', (await staleQuality.locator('.quality-targets > summary').innerText()).includes('58'));
+  check('all stale targets rendered', await staleQuality.locator('[data-application-id]').count() === 57, String(await staleQuality.locator('[data-application-id]').count()));
+  check('all stale targets disclosed by count', (await staleQuality.locator('.quality-targets > summary').innerText()).includes('57'));
   await page.evaluate(() => document.querySelectorAll('#quality-list .quality-targets').forEach((details) => { details.open = true; }));
   const qualityButtons = page.locator('#quality-list [data-application-id]');
-  check('actionable quality applications', await qualityButtons.count() >= 58, String(await qualityButtons.count()));
+  check('actionable quality applications', await qualityButtons.count() >= 57, String(await qualityButtons.count()));
   let offPageIndex = -1;
   for (let index = 0; index < await qualityButtons.count(); index += 1) {
     const id = await qualityButtons.nth(index).getAttribute('data-application-id');

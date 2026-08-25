@@ -94,6 +94,34 @@ This runs the full workflow: evaluate fit, draft CV + cover letter, review with 
 
 `/reset` is also available, see [Starting over](#starting-over) below.
 
+## Application analytics
+
+Refresh the dashboard from local data:
+
+```bash
+python3 -m dashboard.build
+```
+
+Read new recruiter feedback from the Composio `job-search` Gmail connection, reconcile high-confidence matches, queue ambiguous messages, rebuild feedback rules, and regenerate the dashboard:
+
+```bash
+python3 -m dashboard.build --sync-gmail
+```
+
+Open `dashboard/index.html` directly. The daily target is 100 screened opportunities; submission remains quality-gated and manual.
+
+Import a candidate-batch CSV into the canonical tracker and lifecycle ledger:
+
+```bash
+python3 -m analytics.screening candidate-batch.csv --tracker job_search_tracker.csv --events analytics/application_events.csv
+```
+
+The candidate-batch CSV must use this exact header:
+
+```csv
+discovered_at,company,sector,role,role_family,role_type,geography,logistics_status,channel,screening_decision,screening_reason,fit_score,fit_label,source
+```
+
 ## File structure
 
 ```
