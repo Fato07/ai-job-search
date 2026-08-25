@@ -141,7 +141,7 @@ Use the **Agent tool** to spawn a `general-purpose` reviewer agent. The reviewer
 
 Replace `<COMPANY>`, `<ROLE>`, `<INSERT_JOB_POSTING_TEXT_HERE>`, `<INSERT_CV_DRAFT_HERE>`, `<INSERT_COVER_LETTER_DRAFT_HERE>`, and `<INSERT_APPLICABLE_HISTORICAL_RULES_JSON_HERE>` with actual values before dispatching.
 
-```
+````text
 You are a hiring manager proxy reviewing a job application. Your job is to make the application as targeted and compelling as possible.
 
 ## Your Tasks
@@ -224,7 +224,7 @@ Use only `addressed`, `not_applicable`, or `blocked`. An `addressed` row must qu
 Do **not** run a verification checklist — the drafter will do that in the final step. Focus on content critique.
 
 Return Part A, Part B, and Part C together as a single structured message.
-```
+````
 
 ---
 
