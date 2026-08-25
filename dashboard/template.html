@@ -950,10 +950,10 @@
         };
         const linkedReviewApplications = [...new Set(
           quality.review_queue.items
-            .map((item) => item.application_id)
-            .filter((applicationId) => applicationId && ids.has(applicationId))
+            .flatMap((item) => item.candidate_application_ids)
+            .filter((applicationId) => ids.has(applicationId))
         )];
-        const unmappedReviewItems = quality.review_queue.items.filter((item) => !item.application_id);
+        const unmappedReviewItems = quality.review_queue.items.filter((item) => item.candidate_application_ids.length === 0);
         return [
           scoped("Missing Fit Scores", "missing_scores", "Review scoring fields"),
           scoped("Missing Discovery Dates", "missing_dates", "Review source chronology"),

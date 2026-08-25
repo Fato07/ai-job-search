@@ -652,27 +652,43 @@ def _pipeline(
     return rows
 
 
-def _review_queue(review_items: Sequence[Mapping[str, object]]) -> dict[str, object]:
+def _review_queue(
+    review_items: Sequence[Mapping[str, object]],
+    application_ids: set[str],
+) -> dict[str, object]:
     pending = [
         dict(row)
         for row in review_items
         if _text(row.get("status")).casefold() in {"", "pending", "open"}
     ]
     pending.sort(key=lambda row: (_text(row.get("occurred_at")), _text(row.get("review_id")), _stable_json(row)))
-    return {
-        "count": len(pending),
-        "items": [
-            {
-                "review_id": _text(row.get("review_id")),
-                "application_id": _text(row.get("application_id")),
-                "occurred_at": _text(row.get("occurred_at")) or None,
-                "company": _text(row.get("company")),
-                "role": _text(row.get("role")),
-                "reason": _text(row.get("reason")),
-            }
-            for row in pending
-        ],
-    }
+    items: list[dict[str, object]] = []
+    for row in pending:
+        raw_candidates = row.get("candidate_application_ids", "")
+        try:
+            candidates = json.loads(raw_candidates) if isinstance(raw_candidates, str) else raw_candidates
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                "review candidate_application_ids must be a JSON array"
+            ) from exc
+        if not isinstance(candidates, list) or any(
+            not isinstance(application_id, str)
+            or application_id not in application_ids
+            for application_id in candidates
+        ):
+            raise ValueError(
+                "review candidate_application_ids must contain known application IDs"
+            )
+        deduplicated_candidates = list(dict.fromkeys(candidates))
+        items.append({
+            "review_id": _text(row.get("review_id")),
+            "candidate_application_ids": deduplicated_candidates,
+            "occurred_at": _text(row.get("occurred_at")) or None,
+            "company": _text(row.get("company")),
+            "role": _text(row.get("role")),
+            "reason": _text(row.get("reason")),
+        })
+    return {"count": len(items), "items": items}
 
 
 def _filters(
@@ -766,7 +782,7 @@ def build_snapshot(
                 stale_rows.append(application_id)
     stale_rows.sort()
 
-    review_queue = _review_queue(review_rows)
+    review_queue = _review_queue(review_rows, application_ids)
     missing_early_events = sorted(
         event_type
         for event_type in ("screened", "qualified")
@@ -805,10 +821,9 @@ def build_snapshot(
         ),
         "future_events": linked_application_ids(event_rows, "event_id", future_events),
         "review_queue": sorted({
-            _text(row.get("application_id"))
-            for row in review_rows
-            if _text(row.get("application_id")) in application_ids
-            and _text(row.get("status")).casefold() in {"", "pending", "open"}
+            application_id
+            for row in review_queue["items"]
+            for application_id in row["candidate_application_ids"]
         }),
     }
     data_quality = {

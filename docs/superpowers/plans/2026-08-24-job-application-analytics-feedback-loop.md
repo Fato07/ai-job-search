@@ -285,14 +285,7 @@ git commit -m "feat: add analytics data model"
 
 - [ ] **Step 1: Add a representative legacy fixture and failing migration tests**
 
-Create `tests/fixtures/job_analytics/legacy_tracker.csv` with these exact rows:
-
-```csv
-date,company,sector,role,role_type,channel,status,contact_person,fit_rating,notes,cv_file,cover_letter_file,source
-2026-07-19,Keyrus Group,Enterprise GenAI,Forward Deployed AI Engineer,Full-time Remote,Teamtailor,SUBMITTED 2026-07-19,,92/100 Strong,Application submitted.,cv/keyrus.pdf,,https://jobs.test/keyrus
-2026-08-17,RobCo,Industrial robotics,Senior Applied AI Engineer,Full-time Remote,Ashby,REJECTED 2026-08-24,,96/100 Strong,Generic closer-match rejection.,cv/robco.pdf,,https://jobs.test/robco
-2026-07-05,Flutter UK & Ireland,AI security,AI Security Engineer,Full-time London,LinkedIn,HOLD (needs UK sponsorship),,74/100 Good,UK sponsorship blocker.,,,https://jobs.test/flutter
-```
+Use `tests/fixtures/job_analytics/legacy_tracker.csv` as the representative legacy input. It is test-only migration data; the operating tracker and documentation use only the canonical normalized schema.
 
 ```python
 # tests/test_tracker_migration.py

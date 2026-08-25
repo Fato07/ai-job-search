@@ -158,36 +158,83 @@ class LifecycleEventTests(unittest.TestCase):
             ],
         )
 
-    def test_note_detail_truncates_at_280_but_hashes_full_sentence(self):
-        prefix = "Application was viewed 2026-08-21 "
-        sentence_280 = prefix + "x" * (280 - len(prefix))
-        sentence_281 = prefix + "y" * (281 - len(prefix))
-        applications = [
-            {
-                "application_id": application_id,
+    def test_note_detail_redacts_addresses_before_bounding_and_identity(self):
+        prefix = "Application was viewed 2026-08-21 via "
+        suffix = " " + "x" * 320
+
+        def viewed(address):
+            application = {
+                "application_id": "app-private",
                 "discovered_at": "2026-08-20",
                 "submitted_at": "",
                 "status_updated_at": "2026-08-20",
                 "stage": "prospect",
                 "status": "OPEN",
-                "notes": sentence,
+                "notes": prefix + address + suffix,
             }
-            for application_id, sentence in (
-                ("app-280", sentence_280),
-                ("app-281", sentence_281),
+            return next(
+                event
+                for event in backfill_events([application], NOW)
+                if event["event_type"] == "viewed"
             )
-        ]
-        viewed = {
-            event["application_id"]: event
-            for event in backfill_events(applications, NOW)
-            if event["event_type"] == "viewed"
+
+        first = viewed("candidate@example.com")
+        second = viewed("other.person@example.org")
+        expected = (prefix + "[address removed]" + suffix)[:277].rstrip() + "..."
+        self.assertEqual(first["detail"], expected)
+        self.assertEqual(len(first["detail"]), 280)
+        self.assertNotIn("@", first["detail"])
+        self.assertEqual(first["source_ref"], hash_source_ref(
+            f"app-private\x1fnotes:{expected}"
+        ))
+        self.assertEqual(first["source_ref"], second["source_ref"])
+        self.assertEqual(first["event_id"], second["event_id"])
+
+    def test_merge_replaces_legacy_backfill_identity_and_stays_idempotent(self):
+        raw_detail = (
+            "Application was viewed 2026-08-21 via candidate@example.com."
+        )
+        raw_source_ref = hash_source_ref(
+            f"app-private\x1fnotes:{raw_detail}"
+        )
+        canonical_detail = (
+            "Application was viewed 2026-08-21 via [address removed]."
+        )
+        canonical_source_ref = hash_source_ref(
+            f"app-private\x1fnotes:{canonical_detail}"
+        )
+        canonical = {
+            "event_id": event_id(
+                "app-private",
+                "viewed",
+                "2026-08-21T00:00:00Z",
+                canonical_source_ref,
+            ),
+            "application_id": "app-private",
+            "occurred_at": "2026-08-21T00:00:00Z",
+            "event_type": "viewed",
+            "source": "tracker_backfill",
+            "detail": canonical_detail,
+            "source_ref": canonical_source_ref,
+            "created_at": "2026-08-24T00:00:00Z",
         }
-        self.assertEqual(viewed["app-280"]["detail"], sentence_280)
-        self.assertEqual(len(viewed["app-281"]["detail"]), 280)
-        self.assertEqual(viewed["app-281"]["detail"], sentence_281[:280])
+        legacy = {
+            **canonical,
+            "event_id": event_id(
+                "app-private",
+                "viewed",
+                "2026-08-21T00:00:00Z",
+                raw_source_ref,
+            ),
+            "detail": raw_detail,
+            "source_ref": raw_source_ref,
+        }
+
+        merged = merge_events([legacy], [canonical], {"app-private"})
+        self.assertEqual(merged, [canonical])
         self.assertEqual(
-            viewed["app-281"]["source_ref"],
-            hash_source_ref(f"app-281\x1fnotes:{sentence_281}"),
+            merge_events(merged, [canonical], {"app-private"}),
+            [canonical],
         )
 
     def test_note_parser_ignores_non_occurrence_and_negative_contexts(self):

@@ -13,6 +13,7 @@ from analytics.model import (
     EVENT_COLUMNS,
     TRACKER_COLUMNS,
     hash_source_ref,
+    redact_email_addresses,
     read_csv_rows,
     validate_rows,
     write_csv_atomic,
@@ -164,6 +165,8 @@ def validate_event(event: Mapping[str, str], application_ids: set[str]) -> None:
         raise ValueError(f"invalid event source: {event['source']!r}")
     if len(event["detail"]) > 280:
         raise ValueError("event detail exceeds 280 characters")
+    if redact_email_addresses(event["detail"]) != event["detail"]:
+        raise ValueError("event detail contains an email address")
     if not _SHA256.fullmatch(event["source_ref"]):
         raise ValueError("source_ref must be a SHA-256 hash")
     if event["event_id"] != event_id(
@@ -259,12 +262,13 @@ def _note_events(
                 continue
             occurred_date = _nearest_date(sentence, phrase)
             if occurred_date is not None:
+                safe_sentence = redact_email_addresses(sentence, 280)
                 yield _event(
                     application_id,
                     event_type,
                     occurred_date,
-                    sentence[:280],
-                    f"notes:{sentence}",
+                    safe_sentence,
+                    f"notes:{safe_sentence}",
                     created_at,
                 )
 
@@ -397,6 +401,24 @@ def merge_events(
                 f"{row['application_id']!r}"
             )
 
+    incoming_backfill_ids = {
+        row["event_id"]
+        for row in incoming_rows
+        if row["source"] == "tracker_backfill"
+    }
+    incoming_backfill_keys = {
+        (row["application_id"], row["event_type"], row["occurred_at"])
+        for row in incoming_rows
+        if row["source"] == "tracker_backfill"
+    }
+    existing_rows = [
+        row
+        for row in existing_rows
+        if row["event_id"] in incoming_backfill_ids
+        or row["source"] != "tracker_backfill"
+        or (row["application_id"], row["event_type"], row["occurred_at"])
+        not in incoming_backfill_keys
+    ]
     by_id = {row["event_id"]: row for row in existing_rows}
     for row in incoming_rows:
         match = by_id.get(row["event_id"])

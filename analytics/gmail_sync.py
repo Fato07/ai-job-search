@@ -20,7 +20,7 @@ from urllib.parse import urlparse
 
 from analytics.events import mail_event
 from analytics.feedback import CATEGORIES, mail_feedback
-from analytics.model import hash_source_ref
+from analytics.model import hash_source_ref, redact_email_addresses
 
 
 EXPECTED_ACCOUNT_ALIAS = "job-search"
@@ -178,7 +178,6 @@ class _TextExtractor(HTMLParser):
             self.parts.append(data)
 
 
-_EMAIL = re.compile(r"(?i)\b[\w.!#$%&'*+/=?^`{|}~-]+@[\w.-]+\.[a-z]{2,}\b")
 _URL = re.compile(r"(?i)\bhttps?://\S+")
 _SENSITIVE_VALUE = re.compile(
     r"(?i)\b(?P<label>verification\s+code|access\s+token|one[- ]time\s+(?:code|password)|"
@@ -446,7 +445,7 @@ def _sanitize_text(value: object, limit: int | None = None) -> str:
         return ""
     text = _html_text(value)
     text = _URL.sub("[link]", text)
-    text = _EMAIL.sub("[address removed]", text)
+    text = redact_email_addresses(text)
     text = _SENSITIVE_VALUE.sub(_redact_sensitive_value, text)
     text = _PHONE.sub("[number removed]", text)
     text = _WHITESPACE.sub(" ", text).strip()

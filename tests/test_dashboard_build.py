@@ -398,7 +398,11 @@ class DashboardBuildTests(unittest.TestCase):
             event("bad-time", "app-1", "interview", "not-a-date"),
         ]
         feedback = [{"feedback_id": "fb-orphan", "application_id": "app-404", "category": "technical_depth", "evidence_tier": "observed"}]
-        review_items = [{"review_id": "review-1", "status": "pending"}]
+        review_items = [{
+            "review_id": "review-1",
+            "candidate_application_ids": "[]",
+            "status": "pending",
+        }]
 
         quality = self.build(
             applications=applications,
@@ -424,11 +428,11 @@ class DashboardBuildTests(unittest.TestCase):
         self.assertEqual(quality["application_ids"]["stale_rows"], ["app-old"])
         self.assertEqual(quality["application_ids"]["orphaned_events"], [])
 
-    def test_review_queue_preserves_linked_and_unmapped_items(self):
+    def test_review_queue_preserves_candidate_arrays_and_unmapped_items(self):
         review_items = [
             {
                 "review_id": "review-linked",
-                "application_id": "app-1",
+                "candidate_application_ids": '["app-1", "app-2", "app-1"]',
                 "status": "pending",
                 "company": "Alpha",
                 "role": "Applied AI Engineer",
@@ -436,6 +440,7 @@ class DashboardBuildTests(unittest.TestCase):
             },
             {
                 "review_id": "review-global",
+                "candidate_application_ids": "[]",
                 "status": "pending",
                 "company": "Unknown",
                 "role": "Unknown",
@@ -447,10 +452,29 @@ class DashboardBuildTests(unittest.TestCase):
 
         self.assertEqual(quality["review_queue"]["count"], 2)
         self.assertEqual(
-            [item["application_id"] for item in quality["review_queue"]["items"]],
-            ["", "app-1"],
+            [
+                item["candidate_application_ids"]
+                for item in quality["review_queue"]["items"]
+            ],
+            [[], ["app-1", "app-2"]],
         )
-        self.assertEqual(quality["application_ids"]["review_queue"], ["app-1"])
+        self.assertEqual(
+            quality["application_ids"]["review_queue"],
+            ["app-1", "app-2"],
+        )
+
+    def test_review_queue_rejects_malformed_or_unknown_candidate_arrays(self):
+        for value in ("not-json", "{}", '["missing-app"]'):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "review candidate_application_ids",
+                ):
+                    self.build(review_items=[{
+                        "review_id": "review-invalid",
+                        "candidate_application_ids": value,
+                        "status": "pending",
+                    }])
 
     def test_render_is_deterministic_html_safe_and_self_contained(self):
         template = "<html><script>window.DATA=__DASHBOARD_DATA__</script></html>"

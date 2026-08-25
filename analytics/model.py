@@ -31,6 +31,11 @@ REVIEW_COLUMNS = (
     "candidate_application_ids", "reason", "source_ref", "status",
 )
 
+_EMAIL_ADDRESS = re.compile(
+    r"(?i)(?<![\w.!#$%&'*+/=?^`{|}~-])"
+    r"[\w.!#$%&'*+/=?^`{|}~-]+@[\w.-]+\.[a-z]{2,}\b"
+)
+
 
 def slugify(value: str) -> str:
     normalized = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode()
@@ -39,6 +44,14 @@ def slugify(value: str) -> str:
 
 def hash_source_ref(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+def redact_email_addresses(value: str, limit: int | None = None) -> str:
+    redacted = _EMAIL_ADDRESS.sub("[address removed]", value)
+    if limit is None or len(redacted) <= limit:
+        return redacted
+    if limit <= 3:
+        return redacted[:limit]
+    return redacted[: limit - 3].rstrip() + "..."
 
 
 def stable_application_id(discovered_at: str, company: str, role: str) -> str:

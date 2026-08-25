@@ -43,3 +43,25 @@ class TrackerMigrationTests(unittest.TestCase):
         self.assertEqual(migrated[0]["screening_decision"], "rejected")
         self.assertEqual(migrated[0]["submitted_at"], "")
         self.assertEqual(migrated[0]["status_updated_at"], "2026-08-05")
+
+    def test_migration_redacts_personal_addresses_from_contact_and_notes(self):
+        legacy = read_csv_rows(FIXTURES / "legacy_tracker.csv", {"date"})
+        legacy[0]["contact_person"] = "Recruiter <person@example.com>"
+        legacy[0]["notes"] = (
+            "Confirmation received from person@example.com and "
+            "backup@example.org."
+        )
+
+        migrated = migrate_rows([legacy[0]])[0]
+
+        self.assertEqual(
+            migrated["contact_person"],
+            "Recruiter <[address removed]>",
+        )
+        self.assertEqual(
+            migrated["notes"],
+            (
+                "Confirmation received from [address removed] and "
+                "[address removed]."
+            ),
+        )

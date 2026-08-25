@@ -10,6 +10,7 @@ from typing import Iterable, Mapping, Sequence
 
 from analytics.model import (
     TRACKER_COLUMNS,
+    redact_email_addresses,
     read_csv_rows,
     stable_application_id,
     validate_rows,
@@ -158,10 +159,10 @@ def migrate_row(row: Mapping[str, str]) -> dict[str, str]:
         "stage": stage,
         "status": status,
         "status_updated_at": max(status_dates, default=discovered_at),
-        "contact_person": row["contact_person"],
+        "contact_person": redact_email_addresses(row["contact_person"]),
         "fit_score": fit_score,
         "fit_label": fit_label,
-        "notes": row["notes"],
+        "notes": redact_email_addresses(row["notes"]),
         "cv_file": row["cv_file"],
         "cover_letter_file": row["cover_letter_file"],
         "source": row["source"],
