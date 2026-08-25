@@ -21,6 +21,52 @@ Follow these steps **exactly in order**. Do not skip steps.
 
 ---
 
+## Step 0.5: Load Relevant Feedback Rules
+
+Classify the parsed posting with all five selector dimensions:
+
+- `role_family`: `ai_platform | ai_security | applied_ai | forward_deployed | other`
+- `seniority`: `intern | junior | mid | senior | staff | principal | lead | founding | executive`
+- `geography`: `EEA | US | Helsinki/Tallinn | country-of-residence | office-required`
+- `stage`: `application | screen | technical | onsite | offer | post_process`
+- `employment_model`: `employee | b2b | contractor | unknown`
+
+Use only evidence in the posting to classify these values. Use `unknown` for `employment_model` when the posting does not establish it. The current `/apply` lifecycle stage is `application`; in historical rules, `scope.stage` records where the evidence surfaced. Query all pre-offer evidence stages that can constrain application, reviewer, and interview defensibility: `application`, `screen`, and `technical`.
+
+For a Senior Applied AI employee role in the EEA, run these exact commands with the same role family, seniority, geography, and employment model:
+
+```bash
+python3 -m analytics.rules match \
+  --rules analytics/feedback_rules.json \
+  --role-family applied_ai \
+  --seniority senior \
+  --geography EEA \
+  --stage application \
+  --employment-model employee
+
+python3 -m analytics.rules match \
+  --rules analytics/feedback_rules.json \
+  --role-family applied_ai \
+  --seniority senior \
+  --geography EEA \
+  --stage screen \
+  --employment-model employee
+
+python3 -m analytics.rules match \
+  --rules analytics/feedback_rules.json \
+  --role-family applied_ai \
+  --seniority senior \
+  --geography EEA \
+  --stage technical \
+  --employment-model employee
+```
+
+Substitute only the enumerated posting values for another role. Keep every returned rule verbatim, annotate its contextual copy with `origin_stages` containing the selector stage or stages that returned it, then union the three outputs by exact `rule_id`. Do not sum `evidence_count` when deduplicating the same rule. Sort the union by `rule_id` for deterministic downstream review.
+
+Keep this union JSON in context as the **Applicable Historical Rules** checklist for evaluation, drafting, review, and final verification. The origin stage is provenance for where the feedback surfaced, not a reason to ignore an otherwise exact role/seniority/geography/employment-model match during pre-offer preparation. Do not broaden any other scope dimension. If the union is empty, continue without inventing lessons or rules.
+
+---
+
 ## Step 1: DRAFTER - Evaluate Fit
 
 Read the evaluation framework:
@@ -40,8 +86,12 @@ Present the evaluation to the user with:
 1. **Skills match** - which required/preferred skills match vs. gaps
 2. **Experience match** - how work history maps to the role
 3. **Behavioral/culture match** - how behavioral profile fits the role/company culture
-4. **Salary benchmark** - salary index for the company (if available)
-5. **Overall fit score** and recommendation (strong fit / moderate fit / weak fit)
+4. **Logistics** - a separate pass/fail assessment, never folded into technical fit
+5. **Salary benchmark** - salary index for the company (if available)
+6. **Raw relevance score** - a relevance score, not a hiring probability, with the current calibration warning from `04-job-evaluation.md`
+7. **Applicable Historical Rules** - visible rule IDs, origin stages, categories, required actions, and evidence counts from the Step 0.5 union JSON
+
+If a hard logistics gate fails, recommend **do not apply** regardless of the raw technical relevance score. Never change a logistics result to make the score or recommendation more favorable.
 
 After presenting the evaluation, ask the user:
 > "Should I proceed with drafting the CV and cover letter for this role?"
@@ -62,6 +112,8 @@ Read only the reference files you do not yet have:
 Also read the most recent existing CV and cover letter files for concrete structural reference (one of each is enough):
 - Read any existing `cv/main_*.tex` file as a LaTeX template reference
 - Read any existing `cover_letters/cover_*.tex` or `cover_letters/Cover_*.tex` file as a template reference
+
+Treat the Step 0.5 **Applicable Historical Rules** union JSON as a drafting checklist. Preserve each matched rule's exact `rule_id`, `origin_stages`, scope, required action, and evidence count. All `application`, `screen`, and `technical` origin rules in the exact-scoped union can constrain pre-offer drafting and interview defensibility. Address a rule only with defensible candidate evidence; leave unsupported requirements visible for review rather than fabricating experience. An empty union adds no inferred requirements.
 
 ### CV (`cv/main_<company>.tex`)
 - Always in **English**
@@ -87,7 +139,7 @@ Write both files to disk. Keep the exact text of both drafts in working memory �
 
 Use the **Agent tool** to spawn a `general-purpose` reviewer agent. The reviewer gets a fresh context, so pass the drafts **inline in the prompt** below (do not make the reviewer Read them). Scope the reviewer's file reads to content-critique essentials only — the reviewer does not need the LaTeX template files (`05`, `06`) to critique content, since those govern structural/LaTeX concerns the drafter already applied.
 
-Replace `<COMPANY>`, `<ROLE>`, `<INSERT_JOB_POSTING_TEXT_HERE>`, `<INSERT_CV_DRAFT_HERE>`, and `<INSERT_COVER_LETTER_DRAFT_HERE>` with actual values before dispatching.
+Replace `<COMPANY>`, `<ROLE>`, `<INSERT_JOB_POSTING_TEXT_HERE>`, `<INSERT_CV_DRAFT_HERE>`, `<INSERT_COVER_LETTER_DRAFT_HERE>`, and `<INSERT_APPLICABLE_HISTORICAL_RULES_JSON_HERE>` with actual values before dispatching.
 
 ```
 You are a hiring manager proxy reviewing a job application. Your job is to make the application as targeted and compelling as possible.
@@ -126,9 +178,16 @@ Both drafts are provided inline below. Do NOT use the Read tool on the draft fil
 <INSERT_JOB_POSTING_TEXT_HERE>
 </JOB_POSTING>
 
-### 5. Produce Feedback
+### 5. Applicable Historical Rules
+The exact union JSON from Step 0.5 is provided below. Each rule retains where its evidence surfaced in `origin_stages`. Review every rule in this union; do not add global lessons or broaden role family, seniority, geography, or employment-model scope.
 
-Return your feedback in **two parts**:
+<APPLICABLE_HISTORICAL_RULES>
+<INSERT_APPLICABLE_HISTORICAL_RULES_JSON_HERE>
+</APPLICABLE_HISTORICAL_RULES>
+
+### 6. Produce Feedback
+
+Return your feedback in **three parts**:
 
 **Part A — Structured edits (preferred format whenever possible):**
 A JSON array of concrete edits the drafter can apply directly without re-reading the files. Each edit is an object:
@@ -149,11 +208,22 @@ Prose suggestions grouped by category. Produce each category even if your findin
 - **Action-oriented reframing** — identify passive, generic, or low-energy statements and suggest action-oriented rewrites. Use this category especially for structural weakness that doesn't fit a single-sentence swap (e.g., "the whole opening paragraph reads as passive — restructure around your single strongest match to the posting").
 - **Tone and style issues** — check against `03-writing-style.md` AND `02-behavioral-profile.md`. Flag any issues with tone, formality, or voice (cliches, hedging, over-humility, inconsistent register), and specifically flag any mismatch between the letter's voice and the candidate's natural register as described in the behavioral profile.
 
+**Part C — Applicable Historical Rules:**
+Return one row for every rule in `<APPLICABLE_HISTORICAL_RULES>`, preserving its exact `rule_id` and `origin_stages` and using exactly one status:
+
+| Rule | Origin Stage(s) | Status | Evidence / Reason |
+|---|---|---|---|
+| `<rule_id>` | `<origin_stages>` | `addressed` | Exact draft text that addresses the rule |
+| `<rule_id>` | `<origin_stages>` | `not_applicable` | Exact non-stage scope reason the parsed posting context does not apply |
+| `<rule_id>` | `<origin_stages>` | `blocked` | Specific defensible evidence the candidate lacks |
+
+Use only `addressed`, `not_applicable`, or `blocked`. An `addressed` row must quote exact evidence from one of the inline drafts. A `not_applicable` row must name a mismatched non-stage scope dimension; origin stage alone is not a reason to ignore a pre-offer rule. A `blocked` row must state the evidence gap and cannot be repaired by fabricating experience. If the union JSON is empty, return an empty Part C table.
+
 **CRITICAL RULE:** All suggestions must be grounded in actual profile data. Do NOT suggest fabricating skills, experience, or achievements. If a requirement is a gap, say so honestly and suggest how to frame adjacent experience instead.
 
 Do **not** run a verification checklist — the drafter will do that in the final step. Focus on content critique.
 
-Return Part A and Part B together as a single structured message.
+Return Part A, Part B, and Part C together as a single structured message.
 ```
 
 ---
@@ -170,6 +240,11 @@ Once the reviewer agent returns its feedback:
    - **Tone and style issues:** apply the writing-style-guide fixes (no em-dashes, no cliches, no apologetic hedging, consistent first-person active voice).
    Use Edit for targeted changes; only re-read a file if an edit fails because the surrounding text has shifted.
 3. Do NOT incorporate any suggestion that would fabricate skills or experience. If a posting requirement is a genuine gap, acknowledge it honestly and frame adjacent experience instead.
+4. **Process Part C (Applicable Historical Rules) without changing its status vocabulary:**
+   - `addressed`: retain the reviewer's exact draft evidence and confirm the quoted text remains in the final draft after edits.
+   - `not_applicable`: retain the exact scope reason; do not force the rule into the draft.
+   - `blocked`: retain the specific evidence gap. Do not fabricate candidate evidence or silently relabel the rule `addressed`.
+   Track as **affected rule IDs** the exact `rule_id` values with final status `addressed` or `blocked`; exclude `not_applicable` rules.
 
 After all edits are applied, the two files on disk are the final drafts.
 
@@ -230,6 +305,48 @@ Run the full verification checklist from `CLAUDE.md` now — this is the **only*
 
 ### Verification Checklist
 Report pass/fail for each item in the CLAUDE.md verification checklist (factual accuracy, targeting, consistency, quality).
+
+### Applicable Historical Rules
+Report every rule from the Step 0.5 union JSON using the reviewer's final Part C status and exact evidence, scope reason, or evidence gap:
+
+| Rule | Origin Stage(s) | Status | Evidence / Reason |
+|---|---|---|---|
+| `rule-7e6e6b7cebb6f56bd63cb5e9ec90ef76ae83c225d2fdfc54411c936ea2e340e9` | `technical` | `addressed` | CV bullet states 87 documents, field-level F1, model-derived labels, and false-accept rate |
+
+Allowed statuses are exactly `addressed`, `not_applicable`, and `blocked`. A `blocked` rule remains blocked; never create evidence during verification. Also report the ordered list of affected rule IDs (`addressed` and `blocked`; exclude `not_applicable`).
+
+### Structured Tracker Notes
+When creating or updating the application row in `job_search_tracker.csv`, use the row's current normalized `application_id` and the current normalized tracker columns. Do not write a legacy-schema row or identify the row by a legacy date/company fallback.
+
+For an existing row, reuse its exact `application_id`. For a new normalized row, generate the ID with the current `analytics.model.stable_application_id(discovered_at, company, role)` contract and write every current normalized column.
+
+Write the final rule table and affected IDs into the normalized row's `notes` field as structured JSON under a `feedback_rules` key:
+
+```json
+{
+  "feedback_rules": {
+    "context": {
+      "role_family": "<enum>",
+      "seniority": "<enum>",
+      "geography": "<enum>",
+      "stage": "application",
+      "employment_model": "<enum>",
+      "queried_origin_stages": ["application", "screen", "technical"]
+    },
+    "affected_rule_ids": ["<addressed-or-blocked-rule-id>"],
+    "review": [
+      {
+        "rule_id": "<exact-rule-id>",
+        "origin_stages": ["<application | screen | technical>"],
+        "status": "addressed | not_applicable | blocked",
+        "evidence_or_reason": "<exact draft evidence, non-stage scope reason, or evidence gap>"
+      }
+    ]
+  }
+}
+```
+
+Merge this object with any existing notes content without discarding unrelated notes. Preserve an empty `affected_rule_ids` list and empty `review` list when the three-stage union is empty; do not invent entries.
 
 ### Key Tailoring Decisions
 Summarize 3-5 key decisions made to tailor the application:

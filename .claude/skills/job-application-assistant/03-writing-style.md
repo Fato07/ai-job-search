@@ -13,6 +13,19 @@
    - **Never:** Claiming experience the candidate doesn't have; implying they worked in a domain they haven't.
    When a bullet falls in the "flag it" zone, present it to the user after drafting with: "This bullet is a stretch because X. Keep, soften, or drop?" If the evaluation experience match score is below 50, warn before proceeding to drafting that extensive reframing would be needed.
 
+## Evidence Defensibility
+
+These requirements apply to CV bullets, cover-letter claims, reviewer edits, and interview examples:
+
+- **Metrics need a derivation, not just a number.** Every metric must state or make defensible its denominator, unit of analysis, provenance, and failure-cost interpretation. For example, distinguish document-level from field-level accuracy, identify whether labels were human-reviewed or model-derived, and state which false-positive or false-negative cost mattered.
+- **Every metric must pass the interview derivation test.** The candidate must be able to reconstruct how the value was calculated, what records were included or excluded, and what the metric did not prove. If that derivation is unavailable, omit or soften the number rather than reverse-engineering a story.
+- **Lead-role evidence must be concrete.** A Lead claim names team size, the candidate's ownership boundary, a decision they made, and the resulting outcome. Do not substitute broad collaboration or seniority language for people or delivery evidence.
+- **Behavioral disagreement examples use STAR evidence.** State the situation, the candidate's action, the actual disagreement, and the result. A general theory of conflict resolution is not evidence.
+- **Trade-off claims make a choice.** State the selected option, the decision criteria, and the rejected alternative. Listing options without choosing and defending one is incomplete.
+- **Task-specific evaluation outranks generic benchmarks.** Lead with evaluation evidence for the actual task, data, failure modes, and acceptance criteria. Public leaderboards or generic benchmark scores may provide context but cannot replace task-specific proof.
+
+When the Step 0.5 three-stage applicable-rules union is in context, preserve every matched rule's exact `rule_id`, `evidence_count`, scope, and `origin_stages`, including `employment_model`. Historical `scope.stage` records whether evidence surfaced at `application`, `screen`, or `technical`; every rule in the exact role/seniority/geography/employment-model union can constrain pre-offer writing and interview defensibility. Do not broaden another scope dimension. The reviewer status vocabulary is exactly `addressed`, `not_applicable`, and `blocked`: exact draft evidence is required for `addressed`, a mismatched non-stage scope dimension is required for `not_applicable`, and a specific missing-evidence gap is required for `blocked`. Origin stage alone never makes a pre-offer rule `not_applicable`, and candidate experience must never be fabricated to convert `blocked` to `addressed`.
+
 ## Tone
 - **Warm but direct.** Friendly and approachable, but confident without arrogance.
 - **Conversational professional.** Not stiff corporate-speak, not casual chat. Think: how a confident person talks in a good job interview.
