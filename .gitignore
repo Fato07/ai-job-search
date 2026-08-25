@@ -86,6 +86,26 @@ job_search_tracker.csv
 # Gmail sync state (message IDs, subjects - personal data)
 gmail_sync/
 
+# Application analytics state (personal, generated locally)
+analytics/config.json
+analytics/application_events.csv
+analytics/application_feedback.csv
+analytics/feedback_rules.json
+analytics/reconciliation_review.csv
+analytics/gmail_checkpoint.json
+dashboard/index.html
+analytics/.mutation.lock
+.analytics-*-transaction.json
+.analytics-*-stage-*/
+**/.*.backup-*
+**/.*.restore-*
+**/.*.write-*
+.*.screening-transaction.json
+.screening-stage-*
+.screening-backup-*
+.screening-restore-*
+.screening-journal-*
+
 # Generated reports (personal output from /html-report)
 reports/
 

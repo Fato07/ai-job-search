@@ -151,7 +151,7 @@ Postings are treated as untrusted input (the workflow follows no instructions em
 - **`/interview`** preps you for a scheduled interview on a tracked application. It builds a stage-specific prep pack from the application's archive (the exact posting, the CV and cover letter the interviewer actually read, feedback recorded from earlier rounds), researches the company and interviewers with a verify-before-use rule, maps likely questions to your STAR examples, and offers a mock interview following the roleplay protocol in `07-interview-prep.md`. Gaps get honest bridge answers, never invented experience.
 - **`/outcome`** records what happened to an application - interview stages, offers, rejections, silence. It archives the submitted CV, cover letter, and posting text into `documents/applications/<company>_<role>/`, keeps `outcome.md` in the format `/setup` Path A parses, and updates the tracker. It also owns the stretch before there is an outcome to record: `/outcome followup` surfaces open applications that have gone quiet (default 10 days), drafts a short channel-appropriate follow-up in your writing style using only claims from the materials you already submitted (drafts only, never sends; at most twice per application), and offers a thank-you note in the same turn an interview stage is recorded. Once a few applications resolve, it points you back to `/setup` to calibrate the fit framework from what actually got interviews.
 - **`/notion-sync`** publishes a one-way, read-only view of the pipeline into a Notion database via the official Notion MCP server (OAuth, no API keys) - one row per ranked job plus every tracked application, with a write-once briefing page per row. The repo files stay the system of record: nothing syncs back, and documents sync as filenames only. Complements `/html-report`: that is the deep offline dashboard you regenerate at your desk; this is the glanceable live view from anywhere Notion runs (desktop, web, phone).
-- **`/gmail-sync`** reads your Gmail (via the Gmail connector) for status signals on your open applications - interview invites, assessment links, offers, rejections - and proposes them as a batch for you to approve before anything is written to the tracker or `outcome.md`, citing the source email on every proposed change. Offers stop short of proposing `hired`/`offer_declined` since that's your call; conflicting or unmatched signals get flagged for a manual `/outcome` pass instead of guessed.
+- **`/gmail-sync`** reads Gmail through the reviewed analytics adapter. High-confidence receipts, interviews, and rejections may update lifecycle state atomically; conflicting/unmatched messages go to reconciliation. **Every sanitized standalone `offer|offered|offering|offers` token goes to manual reconciliation and never writes tracker/events/feedback, including non-job phrases such as feedback, accommodations, or support.** This intentionally accepts extra manual items to eliminate offer false negatives: ignore a non-job item, or use human-confirmed `/outcome` / `analytics.record transition` for offer, hired, or declined-offer state.
 - **`/rank`** bridges `/scrape` and `/apply`: it batch-scores all newly scraped postings against the fit framework (parallel agents fetch each posting and score the five evaluation dimensions) and returns a ranked shortlist with honest per-job strengths and gaps. Deal-breakers veto, deadlines get urgency flags, dead postings get marked expired. Pick a number and it hands off to the full `/apply` workflow.
 - **`/expand`** enriches your profile by scanning public sources you've already linked in it (GitHub repos, portfolio site, Kaggle, Google Scholar) and looking up syllabi for named courses and certifications. Discovered competencies are added to your profile with a source tag. Useful right after `/setup` to surface skills that documents alone don't make explicit.
 - **`/upskill`** analyzes the gap between your profile, your tracked job postings, and your ranked-but-untracked postings (`/rank`'s recorded gaps in `seen_jobs.json`) — or a single posting via `/upskill <URL>`. Produces a prioritized heatmap of skill gaps and a learning plan with web-searched study resources and time estimates. Useful for career planning between applications.
@@ -160,6 +160,71 @@ Postings are treated as untrusted input (the workflow follows no instructions em
 - **`/add-portal`** generates a job-portal search skill for a job board in your market. It investigates the portal (search URL pattern, result structure, access rules), scaffolds the CLI skill from the same structure as the shipped ones, and test-runs a live query before registering. See [Job search tools](#job-search-tools) below.
 
 `/reset` is also available, see [Starting over](#starting-over) below.
+
+## Application analytics
+Initialize or validate the ignored local analytics files first:
+
+```bash
+python3 -m analytics.init
+```
+
+This is idempotent. It creates fresh local state, migrates legacy trackers, backfills lifecycle data, and fails rather than overwriting malformed existing files.
+
+
+Refresh the dashboard from local data:
+
+```bash
+python3 -m dashboard.build
+```
+
+Read new recruiter feedback from the locally configured Composio Gmail connection, reconcile high-confidence non-offer matches, queue ambiguous and all offer-like messages, rebuild feedback rules, and regenerate the dashboard:
+
+```bash
+cp analytics/config.example.json analytics/config.json
+# Edit gmail_account_alias, gmail_expected_address, and reporting_timezone.
+python3 -m dashboard.build --sync-gmail
+```
+
+`analytics/config.json`, all analytics state ledgers, `job_search_tracker.csv`, and `dashboard/index.html` are local ignored personal state. Only `analytics/config.example.json` is tracked. A local build without config uses sanitized defaults, including UTC; Gmail sync refuses to run until the alias and expected mailbox have been edited.
+
+Open `dashboard/index.html` directly. The daily target is 100 screened opportunities; submission remains quality-gated and manual.
+
+> **Single writer is enforced.** Init, manual lifecycle recording, screening,
+> Gmail refresh, and review resolution share one bounded repo-local advisory
+> lock across recovery, load, validation, and commit. Separate processes cannot
+> overwrite each other's tracker/events state. Move to SQLite before enabling
+> multi-user or distributed writers; the local lock is intentionally host-local.
+
+Resolve or ignore a reconciliation item by its stable review ID:
+
+```bash
+python3 -m analytics.refresh --review-id review-<sha256> --review-status resolved
+```
+
+Use `--review-status ignored` only after explicitly confirming the message
+should not affect tracker state.
+
+Import a candidate-batch CSV into the canonical tracker and lifecycle ledger:
+
+```bash
+python3 -m analytics.screening candidate-batch.csv --tracker job_search_tracker.csv --events analytics/application_events.csv
+```
+
+The operating tracker has one exact 24-column schema:
+
+```csv
+application_id,discovered_at,company,sector,role,role_family,role_type,geography,logistics_status,channel,screening_decision,screening_reason,submitted_at,stage,status,status_updated_at,contact_person,fit_score,fit_label,notes,cv_file,cover_letter_file,source,deadline
+```
+
+Migrate a legacy 13/14-column tracker (or a pre-deadline normalized tracker) once with `python3 -m analytics.migrate job_search_tracker.csv --apply`. Operating readers and writers do not append or patch legacy headers.
+
+The candidate-batch CSV must use this exact header:
+
+```csv
+discovered_at,company,sector,role,role_family,role_type,geography,logistics_status,channel,screening_decision,screening_reason,fit_score,fit_label,source,deadline
+```
+
+`deadline` is empty when unknown and otherwise must be an ISO `YYYY-MM-DD` date.
 
 ## File structure
 

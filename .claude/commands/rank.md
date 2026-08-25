@@ -22,7 +22,9 @@ Follow these steps **in order**.
 ## Step 1: Load State
 
 1. Read `job_scraper/seen_jobs.json`. If the file is missing or has no entries, tell the user to run `/scrape` first and stop.
-2. Read `job_search_tracker.csv`. Build the exclusion set: any company+role already in the tracker is out of scope regardless of flags - it has been applied to or consciously tracked.
+2. Read `job_search_tracker.csv` only when it has the exact canonical header:
+   `application_id,discovered_at,company,sector,role,role_family,role_type,geography,logistics_status,channel,screening_decision,screening_reason,submitted_at,stage,status,status_updated_at,contact_person,fit_score,fit_label,notes,cv_file,cover_letter_file,source,deadline`
+   If it is legacy, stop and tell the user to run `python3 -m analytics.migrate job_search_tracker.csv --apply`; never patch or partially parse the header. Build the exclusion set from stable `application_id` rows: any company+role already in the normalized tracker is out of scope regardless of stage/status.
 3. Select candidates: entries with status `new` (or entries of any status with `--all`), minus the exclusion set, filtered by the focus area if one was given.
 4. If no candidates remain, say so ("Nothing new to rank - run /scrape to find fresh postings") and stop.
 5. Read the scoring framework and profile **once**:

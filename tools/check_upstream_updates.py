@@ -111,7 +111,7 @@ def main() -> int:
         return 1
 
     print(f"Comparing local files against upstream '{ref}'...\n")
-    
+
     updates_available = []
     errors = []
     missing_upstream = []
@@ -125,7 +125,7 @@ def main() -> int:
         # Get local version
         local_text = local_path.read_text(encoding="utf-8")
         local_ver = get_framework_version_from_text(local_text)
-        
+
         # Get upstream version
         rc, upstream_text, git_err = run_git(["show", f"{ref}:{rel_path}"])
         if rc != 0:
@@ -138,15 +138,15 @@ def main() -> int:
             else:
                 errors.append(f"Failed to read upstream version of {rel_path}: {git_err.strip()}")
             continue
-            
+
         upstream_ver = get_framework_version_from_text(upstream_text)
-        
+
         if not local_ver:
             errors.append(f"Local file {rel_path} is missing 'framework_version' in frontmatter.")
             continue
         if not upstream_ver:
             continue
-            
+
         if parse_semver(upstream_ver) > parse_semver(local_ver):
             updates_available.append({
                 "filename": Path(rel_path).name,

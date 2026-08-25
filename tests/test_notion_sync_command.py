@@ -10,6 +10,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from analytics.model import TRACKER_COLUMNS
 
 try:
     import yaml  # noqa: F401 - only probing availability for the lint integration test
@@ -50,6 +51,13 @@ class NotionSyncCommandSpec(unittest.TestCase):
             text,
             "spec lost the rule that CV/cover-letter content never syncs to Notion",
         )
+    def test_tracker_reader_uses_the_canonical_24_column_contract(self):
+        text = COMMAND.read_text(encoding="utf-8")
+        self.assertIn(",".join(TRACKER_COLUMNS), text)
+        self.assertIn("`submitted_at`", text)
+        self.assertIn("`fit_score`", text)
+        self.assertNotIn("`fit_rating`", text)
+
 
     @unittest.skipUnless(
         _HAVE_YAML,

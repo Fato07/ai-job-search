@@ -244,7 +244,18 @@ class GitignoreGuardTests(GuardRepoFixture):
     def test_generated_report_rules_are_required(self):
         # Reports are generated from the user's tracker and application archive,
         # so losing these ignore rules can expose personal job-search history.
-        sensitive_outputs = ["reports/", "upskill/*.md", "**/upskill/report-*.md"]
+        sensitive_outputs = [
+            "reports/",
+            "upskill/*.md",
+            "**/upskill/report-*.md",
+            "analytics/config.json",
+            "analytics/application_events.csv",
+            "analytics/application_feedback.csv",
+            "analytics/feedback_rules.json",
+            "analytics/reconciliation_review.csv",
+            "analytics/gmail_checkpoint.json",
+            "dashboard/index.html",
+        ]
         remaining = [
             rule
             for rule in security_guards.REQUIRED_IGNORE_RULES
@@ -255,9 +266,8 @@ class GitignoreGuardTests(GuardRepoFixture):
         result = run_guards(self.root)
 
         self.assertEqual(result.returncode, 1)
-        self.assertIn("reports/", result.stdout)
-        self.assertIn("upskill/*.md", result.stdout)
-        self.assertIn("**/upskill/report-*.md", result.stdout)
+        for rule in sensitive_outputs:
+            self.assertIn(rule, result.stdout)
 
 
 class GitignorePatternBehaviorTests(unittest.TestCase):
@@ -296,6 +306,29 @@ class GitignorePatternBehaviorTests(unittest.TestCase):
                     expect_ignored,
                     f"{path}: expected ignored={expect_ignored}",
                 )
+    def test_transaction_crash_artifacts_are_ignored(self):
+        cases = (
+            ".analytics-init-transaction.json",
+            ".analytics-record-stage-abc/file.csv",
+            "analytics/.application_events.csv.backup-abc",
+            "analytics/.application_events.csv.restore-abc",
+            ".analytics-refresh-transaction.json.write-abc",
+            ".job_search_tracker.csv.write-abc",
+            "analytics/.feedback_rules.json.write-abc",
+            ".job_search_tracker.csv.screening-transaction.json",
+            ".screening-stage-abc",
+            ".screening-backup-abc",
+            ".screening-restore-abc",
+            ".screening-journal-abc",
+        )
+        for path in cases:
+            with self.subTest(path=path):
+                result = subprocess.run(
+                    ["git", "-C", str(REPO_ROOT), "check-ignore", "-q", path],
+                    capture_output=True,
+                )
+                self.assertEqual(result.returncode, 0, path)
+
 
 
 class GitignoreNegationTests(GuardRepoFixture):

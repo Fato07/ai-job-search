@@ -39,7 +39,7 @@ Optional arguments:
 ### Step 0: Load State
 
 1. Read `job_scraper/seen_jobs.json` (create if missing - start with `{"seen": {}}`)
-2. Read `job_search_tracker.csv` to extract already-applied companies+roles
+2. Read `job_search_tracker.csv` only with the exact canonical header `application_id,discovered_at,company,sector,role,role_family,role_type,geography,logistics_status,channel,screening_decision,screening_reason,submitted_at,stage,status,status_updated_at,contact_person,fit_score,fit_label,notes,cv_file,cover_letter_file,source,deadline`. If it is legacy, stop and tell the user to run `python3 -m analytics.migrate job_search_tracker.csv --apply`; never patch or partially parse it. Extract stable `application_id` plus company+role for deduplication; do not add a second row for an existing tracked application.
 3. Read `search-queries.md` (this directory) for the search strategy
 
 ### Step 1: Search

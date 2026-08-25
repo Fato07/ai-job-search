@@ -29,6 +29,7 @@ Stdlib only. Exit 0 on success, 1 with a failure list otherwise.
 
 import json
 import sys
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -70,6 +71,24 @@ REQUIRED_IGNORE_RULES = [
     "documents/postings/**",
     "documents/interview/**",
     "job_search_tracker.csv",
+    "analytics/config.json",
+    "analytics/application_events.csv",
+    "analytics/application_feedback.csv",
+    "analytics/feedback_rules.json",
+    "analytics/reconciliation_review.csv",
+    "analytics/gmail_checkpoint.json",
+    "analytics/.mutation.lock",
+    ".analytics-*-transaction.json",
+    ".analytics-*-stage-*/",
+    "**/.*.backup-*",
+    "**/.*.restore-*",
+    "**/.*.write-*",
+    ".*.screening-transaction.json",
+    ".screening-stage-*",
+    ".screening-backup-*",
+    ".screening-restore-*",
+    ".screening-journal-*",
+    "dashboard/index.html",
     "gmail_sync/",
     "reports/",
     "upskill/*.md",
@@ -118,6 +137,45 @@ ALLOWED_IGNORE_NEGATIONS = {
 ALLOWED_HOOKS: set[str] = set()
 
 FORBIDDEN_SCRIPTS = {"preinstall", "install", "postinstall", "prepare", "prepack"}
+PRIVATE_CORPUS = tuple(
+    value.casefold()
+    for value in (
+        "Cusp" + "AI",
+        "Za" + "pier",
+        "Nor" + "dea",
+        "Dragon" + "fly",
+        "Digital " + "Workforce",
+        "Keyrus " + "Group",
+        "Flutter " + "UK",
+        "Lumin" + "or",
+        "Tak" + "tile",
+        "Data" + "bricks Recruiting",
+        "Car" + "ta",
+        "Rob" + "Co",
+    )
+)
+
+
+def check_private_corpus() -> None:
+    if not (ROOT / ".git").exists():
+        return
+    completed = subprocess.run(
+        ["git", "ls-files"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    for relative in completed.stdout.splitlines():
+        path = ROOT / relative
+        try:
+            text = path.read_text(encoding="utf-8").casefold()
+        except (OSError, UnicodeDecodeError):
+            continue
+        if any(value in text for value in PRIVATE_CORPUS):
+            errors.append(
+                f"{relative}: tracked text contains known private application corpus"
+            )
 
 
 def _hook_commands(event: str, entries: object):
@@ -260,6 +318,7 @@ def main() -> int:
     check_permissions()
     check_gitignore()
     check_package_manifests()
+    check_private_corpus()
     if errors:
         print(f"security_guards: {len(errors)} failure(s)")
         for err in errors:

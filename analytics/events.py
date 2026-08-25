@@ -1,0 +1,463 @@
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import re
+from collections import Counter
+from datetime import date, datetime, timezone
+from pathlib import Path
+from typing import Iterable, Mapping
+
+from analytics.model import (
+    EVENT_COLUMNS,
+    LIFECYCLE_EVENT_SOURCES,
+    LIFECYCLE_EVENT_TYPES,
+    hash_source_ref,
+    redact_email_addresses,
+    read_csv_rows,
+    read_tracker_rows,
+    validate_rows,
+    write_csv_atomic,
+)
+
+_SHA256 = re.compile(r"[0-9a-f]{64}")
+_EVENT_ID = re.compile(r"evt-[0-9a-f]{64}")
+
+_SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])(?:\s+|$)|\n+")
+_ISO_DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+_REJECTION_EVIDENCE = re.compile(
+    r"(?:^|:\s)rejected by "
+    r"(?:the )?(?:hiring team|team|company|employer|recruiter)\b"
+    r"|\brejection (?:email )?(?:was )?received\b"
+    r"|\b(?:application|submission) (?:was |has been )?rejected(?! by)\b"
+    r"|\b(?:candidate|candidacy) (?:was |has been )rejected(?! by)\b"
+    r"|\b(?:application|submission|candidate|candidacy) "
+    r"(?:was |has been )rejected by "
+    r"(?:the )?(?:hiring team|team|company|employer|recruiter)\b"
+    r"|\b(?:candidate|application) rejected by "
+    r"(?:the )?(?:hiring team|team|company|employer|recruiter)\b"
+    r"|\b(?:hiring )?(?:team|company|employer|recruiter) rejected "
+    r"(?:the |your )?(?:application|submission|candidate|candidacy)\b"
+    r"|\b(?:hiring )?(?:team|company|employer|recruiter) "
+    r"(?:will not|won't|did not|does not) (?:move forward|proceed) "
+    r"with (?:the |your )?(?:application|submission|candidate|candidacy)\b"
+    r"|\b(?:application|submission|candidacy) "
+    r"(?:will not|won't|did not|does not) (?:move forward|proceed)\b",
+    re.IGNORECASE,
+)
+_REJECTION_NEGATIVE_CONTEXT = re.compile(
+    r"\b(?:no|neither) (?:application|submission|candidate|candidacy)\b"
+    r".{0,40}\brejected\b"
+    r"|\bnot rejected\b"
+    r"|\b(?:candidate|applicant|i|we) rejected "
+    r"(?:the |an )?(?:offer|role|position)\b"
+    r"|\b(?:offer|role|position) (?:was )?rejected by "
+    r"(?:the )?(?:candidate|applicant|me|us)\b"
+    r"|\b(?:candidate|applicant|i|we) "
+    r"(?:declined|withdrew|withdraws?|will not proceed|won't proceed|did not proceed)\b",
+    re.IGNORECASE,
+)
+_VIEWED_EVIDENCE = re.compile(
+    r"\bapplication (?:was )?viewed\b"
+    r"|\bviewed (?:the |your )?application\b"
+    r"|\bviewed notification (?:was )?received\b",
+    re.IGNORECASE,
+)
+_FOLLOW_UP_EVIDENCE = re.compile(
+    r"\bfollow[- ]up (?:email )?(?:was )?sent\b"
+    r"|\bsent (?:a |the )?follow[- ]up(?: email)?\b"
+    r"|\bfollowed up\b",
+    re.IGNORECASE,
+)
+_INTERVIEW_EVIDENCE = re.compile(
+    r"\b(?:video |phone )?interview (?:invite|request) (?:was )?received\b"
+    r"|\binvited to interview\b"
+    r"|\b(?:video |phone )?interview (?:was )?"
+    r"(?:done|scheduled|held|happened|completed|conducted|took place)\b"
+    r"|\bintro[- ]call (?:was )?"
+    r"(?:done|scheduled|held|happened|completed|conducted|took place)\b"
+    r"|\b(?:phone|video) screen\b"
+    r"|\b(?:after|following) the \d{4}-\d{2}-\d{2}"
+    r"(?: \d{2}:\d{2})? (?:video |phone )?interview\b",
+    re.IGNORECASE,
+)
+_RECEIVED_EVIDENCE = re.compile(
+    r"\bconfirmation\b.{0,80}\breceived\b"
+    r"|\b(?:application|submission) (?:was |successfully )?received\b"
+    r"|\breceived (?:the |your )?(?:application|submission)\b"
+    r"|\bconfirming receipt\b",
+    re.IGNORECASE,
+)
+_STATUS_INTERVIEW_EVIDENCE = re.compile(
+    r"\b(?:interview|intro[- ]call|phone screen|video screen)\b.*"
+    r"\b(?:done|scheduled|held|happened|completed|conducted)\b",
+    re.IGNORECASE,
+)
+_NOTE_EVENT_PATTERNS = (
+    ("rejected", _REJECTION_EVIDENCE),
+    ("viewed", _VIEWED_EVIDENCE),
+    ("follow_up", _FOLLOW_UP_EVIDENCE),
+    ("interview", _INTERVIEW_EVIDENCE),
+    ("received", _RECEIVED_EVIDENCE),
+)
+
+
+def _utc_timestamp(value: datetime) -> str:
+    if value.tzinfo is None:
+        raise ValueError("datetime must be timezone-aware")
+    return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace(
+        "+00:00", "Z"
+    )
+
+
+def _date_timestamp(value: str) -> str:
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"invalid ISO date: {value!r}") from exc
+    if parsed.isoformat() != value:
+        raise ValueError(f"invalid ISO date: {value!r}")
+    return f"{value}T00:00:00Z"
+
+
+def event_id(
+    application_id: str, event_type: str, occurred_at: str, source_ref: str
+) -> str:
+    material = "\x1f".join((application_id, event_type, occurred_at, source_ref))
+    return f"evt-{hashlib.sha256(material.encode('utf-8')).hexdigest()}"
+
+
+def validate_event(event: Mapping[str, str], application_ids: set[str]) -> None:
+    if set(event) != set(EVENT_COLUMNS):
+        raise ValueError("event columns differ from schema")
+    if any(not isinstance(event[column], str) for column in EVENT_COLUMNS):
+        raise ValueError("event fields must be strings")
+    if not _EVENT_ID.fullmatch(event["event_id"]):
+        raise ValueError("event_id must be a stable SHA-256 identifier")
+    if event["application_id"] not in application_ids:
+        raise ValueError(
+            f"event {event['event_id']!r} has unknown application_id "
+            f"{event['application_id']!r}"
+        )
+    for name in ("occurred_at", "created_at"):
+        value = event[name]
+        if not value.endswith("Z"):
+            raise ValueError(f"{name} must be an ISO-8601 UTC timestamp")
+        try:
+            datetime.fromisoformat(value[:-1] + "+00:00")
+        except ValueError as exc:
+            raise ValueError(f"{name} must be an ISO-8601 UTC timestamp") from exc
+    if event["event_type"] not in LIFECYCLE_EVENT_TYPES:
+        raise ValueError(f"invalid event_type: {event['event_type']!r}")
+    if event["source"] not in LIFECYCLE_EVENT_SOURCES:
+        raise ValueError(f"invalid event source: {event['source']!r}")
+    if len(event["detail"]) > 280:
+        raise ValueError("event detail exceeds 280 characters")
+    if redact_email_addresses(event["detail"]) != event["detail"]:
+        raise ValueError("event detail contains an email address")
+    if not _SHA256.fullmatch(event["source_ref"]):
+        raise ValueError("source_ref must be a SHA-256 hash")
+    if event["event_id"] != event_id(
+        event["application_id"],
+        event["event_type"],
+        event["occurred_at"],
+        event["source_ref"],
+    ):
+        raise ValueError("event_id does not match its identity fields")
+
+
+def mail_event(
+    *,
+    application_id: str,
+    occurred_at: str,
+    event_type: str,
+    detail: str,
+    source_ref: str,
+    created_at: str,
+) -> dict[str, str]:
+    row = {
+        "event_id": event_id(application_id, event_type, occurred_at, source_ref),
+        "application_id": application_id,
+        "occurred_at": occurred_at,
+        "event_type": event_type,
+        "source": "gmail",
+        "detail": detail,
+        "source_ref": source_ref,
+        "created_at": created_at,
+    }
+    validate_event(row, {application_id})
+    return row
+
+
+def _event(
+    application_id: str,
+    event_type: str,
+    occurred_date: str,
+    detail: str,
+    source_text: str,
+    created_at: str,
+) -> dict[str, str]:
+    occurred_at = _date_timestamp(occurred_date)
+    source_ref = hash_source_ref(f"{application_id}\x1f{source_text}")
+    return {
+        "event_id": event_id(application_id, event_type, occurred_at, source_ref),
+        "application_id": application_id,
+        "occurred_at": occurred_at,
+        "event_type": event_type,
+        "source": "tracker_backfill",
+        "detail": detail,
+        "source_ref": source_ref,
+        "created_at": created_at,
+    }
+
+
+def _nearest_date(sentence: str, phrase: re.Match[str]) -> str | None:
+    dates = list(_ISO_DATE.finditer(sentence))
+    if not dates:
+        return None
+
+    def distance(candidate: re.Match[str]) -> int:
+        if candidate.end() <= phrase.start():
+            return phrase.start() - candidate.end()
+        if candidate.start() >= phrase.end():
+            return candidate.start() - phrase.end()
+        return 0
+
+    return min(dates, key=distance).group(0)
+
+
+def _note_events(
+    application_id: str, notes: str, created_at: str
+) -> Iterable[dict[str, str]]:
+    for sentence in _SENTENCE_BOUNDARY.split(notes):
+        sentence = sentence.strip()
+        if not sentence or _ISO_DATE.search(sentence) is None:
+            continue
+        sentence_has_rejection_negative = (
+            _REJECTION_NEGATIVE_CONTEXT.search(sentence) is not None
+        )
+        sentence_is_rejection = (
+            _REJECTION_EVIDENCE.search(sentence) is not None
+            and not sentence_has_rejection_negative
+        )
+        for event_type, pattern in _NOTE_EVENT_PATTERNS:
+            if event_type == "received" and sentence_is_rejection:
+                continue
+            if event_type == "rejected" and sentence_has_rejection_negative:
+                continue
+            phrase = pattern.search(sentence)
+            if phrase is None:
+                continue
+            occurred_date = _nearest_date(sentence, phrase)
+            if occurred_date is not None:
+                safe_sentence = redact_email_addresses(sentence, 280)
+                yield _event(
+                    application_id,
+                    event_type,
+                    occurred_date,
+                    safe_sentence,
+                    f"notes:{safe_sentence}",
+                    created_at,
+                )
+
+
+def backfill_events(
+    applications: Iterable[Mapping[str, str]], now: datetime
+) -> list[dict[str, str]]:
+    created_at = _utc_timestamp(now)
+    events: list[dict[str, str]] = []
+    logical_keys: set[tuple[str, str, str]] = set()
+
+    def add(event: dict[str, str]) -> None:
+        key = (event["application_id"], event["event_type"], event["occurred_at"])
+        if key not in logical_keys:
+            logical_keys.add(key)
+            events.append(event)
+
+    for application in applications:
+        application_id = application.get("application_id", "")
+        if not application_id:
+            raise ValueError("application_id is required")
+        discovered_at = application.get("discovered_at", "")
+        add(
+            _event(
+                application_id,
+                "discovered",
+                discovered_at,
+                "Discovered",
+                f"discovered_at:{discovered_at}",
+                created_at,
+            )
+        )
+
+        submitted_at = application.get("submitted_at", "").strip()
+        if submitted_at:
+            add(
+                _event(
+                    application_id,
+                    "submitted",
+                    submitted_at,
+                    "Submitted",
+                    f"submitted_at:{submitted_at}",
+                    created_at,
+                )
+            )
+
+        status = application.get("status", "")
+        normalized_status = status.casefold()
+        stage = application.get("stage", "").casefold()
+        status_date = application.get("status_updated_at", "") or discovered_at
+        status_source = f"status:{status}"
+        if "confirmed" in normalized_status or "received" in normalized_status:
+            add(
+                _event(
+                    application_id,
+                    "received",
+                    status_date,
+                    status or "Received",
+                    status_source,
+                    created_at,
+                )
+            )
+        if (
+            (stage == "interview" and "rejected" not in normalized_status)
+            or _STATUS_INTERVIEW_EVIDENCE.search(status) is not None
+        ):
+            add(
+                _event(
+                    application_id,
+                    "interview",
+                    status_date,
+                    status or "Interview",
+                    status_source,
+                    created_at,
+                )
+            )
+        if "rejected" in normalized_status:
+            add(
+                _event(
+                    application_id,
+                    "rejected",
+                    status_date,
+                    status,
+                    status_source,
+                    created_at,
+                )
+            )
+        if "offer" in normalized_status:
+            add(
+                _event(
+                    application_id,
+                    "offer",
+                    status_date,
+                    status,
+                    status_source,
+                    created_at,
+                )
+            )
+
+        for event in _note_events(
+            application_id, application.get("notes", ""), created_at
+        ):
+            add(event)
+
+    validate_rows(events, EVENT_COLUMNS, unique_key="event_id")
+    return sorted(
+        events,
+        key=lambda event: (
+            event["occurred_at"],
+            event["application_id"],
+            event["event_type"],
+            event["event_id"],
+        ),
+    )
+
+
+def merge_events(
+    existing: Iterable[Mapping[str, str]],
+    incoming: Iterable[Mapping[str, str]],
+    application_ids: set[str],
+) -> list[dict[str, str]]:
+    existing_rows = [dict(row) for row in existing]
+    incoming_rows = [dict(row) for row in incoming]
+    validate_rows(existing_rows, EVENT_COLUMNS, unique_key="event_id")
+    validate_rows(incoming_rows, EVENT_COLUMNS)
+    for row in (*existing_rows, *incoming_rows):
+        validate_event(row, application_ids)
+
+    incoming_backfill_ids = {
+        row["event_id"]
+        for row in incoming_rows
+        if row["source"] == "tracker_backfill"
+    }
+    incoming_backfill_keys = {
+        (row["application_id"], row["event_type"], row["occurred_at"])
+        for row in incoming_rows
+        if row["source"] == "tracker_backfill"
+    }
+    existing_rows = [
+        row
+        for row in existing_rows
+        if row["event_id"] in incoming_backfill_ids
+        or row["source"] != "tracker_backfill"
+        or (row["application_id"], row["event_type"], row["occurred_at"])
+        not in incoming_backfill_keys
+    ]
+    by_id = {row["event_id"]: row for row in existing_rows}
+    for row in incoming_rows:
+        match = by_id.get(row["event_id"])
+        if match is not None and any(
+            match[column] != row[column]
+            for column in EVENT_COLUMNS
+            if column != "created_at"
+        ):
+            raise ValueError(f"conflicting duplicate event_id: {row['event_id']!r}")
+        if match is None:
+            by_id[row["event_id"]] = row
+    merged = sorted(
+        by_id.values(),
+        key=lambda event: (
+            event["occurred_at"],
+            event["application_id"],
+            event["event_type"],
+            event["event_id"],
+        ),
+    )
+    validate_rows(merged, EVENT_COLUMNS, unique_key="event_id")
+    for row in merged:
+        validate_event(row, application_ids)
+    return merged
+
+
+def _backfill_command(tracker_path: Path, events_path: Path) -> None:
+    applications = read_tracker_rows(tracker_path)
+    existing = (
+        read_csv_rows(events_path, EVENT_COLUMNS)
+        if events_path.exists() and events_path.stat().st_size
+        else []
+    )
+    generated = backfill_events(applications, datetime.now(timezone.utc))
+    merged = merge_events(
+        existing,
+        generated,
+        {application["application_id"] for application in applications},
+    )
+    write_csv_atomic(events_path, EVENT_COLUMNS, merged)
+    counts = Counter(event["event_type"] for event in merged)
+    print(json.dumps({"events": len(merged), "event_counts": dict(sorted(counts.items()))}))
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    backfill_parser = subparsers.add_parser("backfill")
+    backfill_parser.add_argument("--tracker", type=Path, required=True)
+    backfill_parser.add_argument("--events", type=Path, required=True)
+    args = parser.parse_args()
+    if args.command == "backfill":
+        _backfill_command(args.tracker, args.events)
+
+
+if __name__ == "__main__":
+    main()

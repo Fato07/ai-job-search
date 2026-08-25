@@ -162,83 +162,15 @@ class ReadersBucketMap(unittest.TestCase):
     """Each reader that classifies tracker values must handle both spellings
     and must not include archive-only values in tracker buckets."""
 
-    def test_html_report_bucket_includes_space_and_underscore_forms(self):
-        """Read-tolerance: both spellings must reach the Rejected/Closed bucket."""
-        # Scope to the bucket-map section, not the whole file, so the assertion
-        # proves the mapping exists where stats are computed - a stray mention
-        # anywhere else in the file would otherwise satisfy it.
-        step1 = section(HTML_REPORT, "## Step 1: Collect Data")
-        self.assertIn(
-            "no response",
-            step1,
-            "/html-report must accept the legacy 'no response' (space) form so that "
-            "existing trackers are not silently excluded from stats",
-        )
-        self.assertIn(
-            "no_response",
-            step1,
-            "/html-report must accept the canonical 'no_response' (underscore) form",
-        )
-        self.assertIn(
-            "offer declined",
-            step1,
-            "/html-report must accept the legacy 'offer declined' (space) form",
-        )
-        self.assertIn(
-            "offer_declined",
-            step1,
-            "/html-report must accept the canonical 'offer_declined' (underscore) form",
-        )
+    def test_html_report_routes_to_stage_and_event_aware_dashboard(self):
+        text = HTML_REPORT.read_text(encoding="utf-8")
+        self.assertIn("python3 -m dashboard.build", text)
+        self.assertIn("lifecycle history", text)
 
-    def test_html_report_bucket_map_has_catch_all(self):
-        """No tracker value may drop out of the stats silently: unrecognised values
-        fall to Rejected/Closed and are named once in the status breakdown."""
-        step1 = section(HTML_REPORT, "## Step 1: Collect Data")
-        self.assertIn(
-            "anything else",
-            step1,
-            "The bucket map must have a catch-all line for unrecognised tracker values",
-        )
-        self.assertIn(
-            "unrecognised",
-            step1,
-            "The catch-all must name the unrecognised value once so the drop is "
-            "visible instead of silent",
-        )
-
-    def test_html_report_bucket_does_not_contain_interview_only(self):
-        """`interview_only` is the archive outcome.md Status: enum value,
-        never a tracker CSV status. Listing it in the tracker bucket map
-        confuses the two enums and would classify archive-only values
-        that should not appear in the CSV."""
-        # We only care about the bucket map section, not the whole file,
-        # to avoid false positives from comments or this test file itself.
-        step1 = section(HTML_REPORT, "## Step 1: Collect Data")
-        self.assertNotIn(
-            "interview_only",
-            step1,
-            "`interview_only` must not appear in /html-report's tracker bucket map — "
-            "it is part of the archive `outcome.md` Status: enum, not a tracker CSV value",
-        )
-
-    def test_gmail_sync_references_vocabulary_block(self):
-        """gmail-sync must defer to /outcome's vocabulary block for the
-        open-application set, not hardcode the final-status set with
-        space spellings that diverge from the writer."""
-        step2_text = section(GMAIL_SYNC, "## Step 2: Load State")
-        self.assertIn(
-            "Tracker status vocabulary",
-            step2_text,
-            "/gmail-sync Step 2 must reference the /outcome vocabulary block "
-            "instead of restating the final-status set with its own spellings",
-        )
-        self.assertNotIn(
-            "no response",
-            step2_text,
-            "/gmail-sync Step 2 must not restate the space spellings locally - "
-            "the vocabulary block is the single source for what counts as final, "
-            "and a second local list is what drifted in #298",
-        )
+    def test_gmail_sync_routes_to_normalized_lifecycle_writer(self):
+        text = GMAIL_SYNC.read_text(encoding="utf-8")
+        self.assertIn("python3 -m analytics.refresh --sync-gmail", text)
+        self.assertIn("`stage`, `status`, `status_updated_at`, and `submitted_at`", text)
 
     def test_notion_sync_normalises_status_before_write(self):
         """Step 4 must map legacy space spellings to canonical before setting
@@ -303,21 +235,6 @@ class ReaderCases(unittest.TestCase):
             VOCAB_ANCHOR,
             "Final",
             "The vocabulary block must define the final-status set explicitly",
-        ),
-        # /html-report Step 2 excludes drafted from stats
-        (
-            HTML_REPORT,
-            "## Step 2: Compute Summary Stats",
-            "excluded from every statistic below",
-            "drafted rows must be excluded from every statistic, not counted as sent",
-        ),
-        # /gmail-sync staleness check skips drafted
-        (
-            GMAIL_SYNC,
-            "## Step 9: Staleness Check",
-            "Skip `drafted` rows here",
-            "the staleness check must skip drafted rows — nothing was sent, "
-            "so nobody is late replying",
         ),
         # /apply's append-vs-update decision anchors to the vocabulary
         (

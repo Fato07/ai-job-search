@@ -61,7 +61,7 @@ def parse_frontmatter(path: Path) -> dict:
     end = text.find("\n---", 4)
     if end == -1:
         return {}
-    
+
     # Simple parser for YAML/frontmatter
     data = {}
     for line in text[4:end].splitlines():
@@ -77,14 +77,14 @@ def has_non_trivial_changes(file_path: Path, base_commit: str) -> bool:
     if rc != 0:
         # If diff fails (e.g. file is new/untracked), it's a change
         return True
-    
+
     # Parse diff lines
     # We want to count lines added/removed that:
     # - do not match framework_version line
     # - are not empty/whitespace only
     meaningful_changes = 0
     version_changed = False
-    
+
     for line in stdout.splitlines():
         if line.startswith("+++") or line.startswith("---") or line.startswith("@@"):
             continue
@@ -99,24 +99,24 @@ def has_non_trivial_changes(file_path: Path, base_commit: str) -> bool:
             if content == "---":
                 continue
             meaningful_changes += 1
-            
+
     # If the version key itself was modified, we don't fail, regardless of other changes
     if version_changed:
         return False
-        
+
     # If there are meaningful changes but the version was not changed
     return meaningful_changes > 0
 
 def main() -> int:
     errors = []
-    
+
     # 1. Lint: Check that all framework files have framework_version in frontmatter
     for path in FRAMEWORK_FILES:
         rel_path = str(path.relative_to(ROOT))
         fm = parse_frontmatter(path)
         if "framework_version" not in fm:
             errors.append(f"{rel_path}: missing 'framework_version' in frontmatter")
-            
+
     # 2. Check for missing version bumps in modified files
     base_commit = get_base_commit()
     if base_commit:
@@ -139,7 +139,7 @@ def main() -> int:
         for err in errors:
             print(f"  - {err}")
         return 1
-        
+
     print("Framework Version Check: OK")
     return 0
 

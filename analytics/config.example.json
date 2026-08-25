@@ -1,0 +1,10 @@
+{
+  "daily_screening_target": 100,
+  "daily_submission_soft_capacity": 20,
+  "max_active_applications_per_company": 2,
+  "gmail_account_alias": "CHANGE_ME",
+  "gmail_expected_address": "candidate@example.test",
+  "gmail_overlap_days": 7,
+  "reporting_timezone": "UTC",
+  "company_aliases": {}
+}

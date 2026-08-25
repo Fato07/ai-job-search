@@ -1,0 +1,98 @@
+[
+  {
+    "case": "example_robotics_rejection",
+    "subject": "Update on your application",
+    "sender": "Example Robotics Talent",
+    "messageTimestamp": "2026-08-24T08:10:00Z",
+    "messageText": "We have decided not to move forward with your application. Other candidates were a closer match.",
+    "messageId": "fixture-example_robotics-rejection",
+    "company": "Example Robotics",
+    "role": "Senior Applied AI Engineer (m/f/d)"
+  },
+  {
+    "case": "example_decision_rejection_us_role",
+    "subject": "Application update",
+    "sender": "Example Decision Talent Team",
+    "messageTimestamp": "2026-08-21T12:30:00Z",
+    "messageText": "For the Senior Forward Deployed Engineer, US role, we will not progress with your application. We selected other candidates whose experience is a closer match.",
+    "messageId": "fixture-example_decision-rejection",
+    "company": "Example Decision",
+    "role": "Senior Forward Deployed Engineer, US"
+  },
+  {
+    "case": "example_bank_security_rejection",
+    "subject": "Thank you for your job application!",
+    "sender": "Example Bank Group Talent",
+    "messageTimestamp": "2026-08-21T07:35:34Z",
+    "messageText": "Senior Security Engineer (Data Platform). We will not progress.",
+    "threadId": "fixture-example_bank-security-thread"
+  },
+  {
+    "case": "example_equity_rejection",
+    "subject": "Your Example Equity application",
+    "sender": "Example Equity Recruiting",
+    "messageTimestamp": "2026-08-21T10:00:00Z",
+    "messageText": "We will not be moving forward with your application for Staff Software Engineer, Middle Office.",
+    "messageId": "fixture-example_equity-rejection",
+    "company": "Example Equity",
+    "role": "Staff Software Engineer, Middle Office"
+  },
+  {
+    "case": "example_data_rejection",
+    "subject": "Application status",
+    "sender": "Example Data Recruiting",
+    "messageTimestamp": "2026-08-21T11:15:00Z",
+    "messageText": "We decided not to proceed with your application for Field Engineering Enablement Leader.",
+    "messageId": "fixture-example_data-rejection",
+    "company": "Example Data",
+    "role": "Field Engineering Enablement Leader"
+  },
+  {
+    "case": "example_mobility_rejection",
+    "subject": "An update from Example Mobility",
+    "sender": "Example Mobility Talent",
+    "messageTimestamp": "2026-08-12T14:20:00Z",
+    "messageText": "We are unable to move forward with your application for Principal Program Manager, AI Project Charter. Other candidates were a closer match.",
+    "messageId": "fixture-example_mobility-rejection",
+    "company": "Example Mobility",
+    "role": "Principal Program Manager, AI Project Charter"
+  },
+  {
+    "case": "application_confirmation",
+    "subject": "Application received",
+    "sender": "Aster Labs Talent",
+    "messageTimestamp": "2026-08-22T09:00:00Z",
+    "messageText": "We received your application for the Applied AI Engineer role and will review it shortly.",
+    "messageId": "fixture-aster-confirmation",
+    "company": "Aster Labs",
+    "role": "Applied AI Engineer"
+  },
+  {
+    "case": "interview_invitation",
+    "subject": "Interview invitation",
+    "sender": "Aster Labs Talent",
+    "messageTimestamp": "2026-08-23T13:00:00Z",
+    "messageText": "We would like to invite you to interview for the Applied AI Engineer role. Please choose a time.",
+    "messageId": "fixture-aster-interview",
+    "company": "Aster Labs",
+    "role": "Applied AI Engineer"
+  },
+  {
+    "case": "example_bank_ambiguous_same_company",
+    "subject": "Application update",
+    "sender": "Example Bank Group Talent",
+    "messageTimestamp": "2026-08-22T08:00:00Z",
+    "messageText": "We will not progress with your application. Other candidates were a closer match.",
+    "messageId": "fixture-example_bank-ambiguous",
+    "company": "Example Bank Group",
+    "role": ""
+  },
+  {
+    "case": "unrelated_newsletter",
+    "subject": "Weekly engineering digest",
+    "sender": "Industry Brief",
+    "messageTimestamp": "2026-08-22T06:00:00Z",
+    "messageText": "This week: platform engineering patterns, conference notes, and community updates.",
+    "messageId": "fixture-newsletter"
+  }
+]

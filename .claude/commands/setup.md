@@ -386,6 +386,9 @@ Replace all placeholder tokens in the search queries file with the user's actual
   - Priority 2: Their domain expertise
   - Priority 3: Adjacent roles they could pivot into
   - Priority 4: Broader roles (wider net)
+### 9. Initialize local analytics
+Run `python3 -m analytics.init`. This idempotently creates ignored local analytics state, migrates a legacy tracker, and fails closed on malformed existing files.
+
 
 ---
 

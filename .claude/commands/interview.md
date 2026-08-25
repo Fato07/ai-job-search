@@ -12,8 +12,9 @@ Follow these steps **in order**.
 
 `$ARGUMENTS` may contain a company name (optionally with a role), e.g. `/interview acme`.
 
-- **With an argument:** match against `job_search_tracker.csv` rows (case-insensitive on company, then role). One match → proceed. Several → list and ask. None → this application isn't tracked; suggest `/outcome <company>` to register it first, or accept the posting and role details directly if the user wants to prep anyway.
-- **Without an argument:** list tracker rows whose status suggests a live process — an open status per the **Tracker status vocabulary** in `/outcome` (`interview`, `offer`, or recently `applied`; `drafted` is open but nothing was sent, so it never qualifies) — and ask which one. If the tracker is empty, ask for the company, role, and posting.
+- **Tracker contract:** read `job_search_tracker.csv` only with the exact canonical header `application_id,discovered_at,company,sector,role,role_family,role_type,geography,logistics_status,channel,screening_decision,screening_reason,submitted_at,stage,status,status_updated_at,contact_person,fit_score,fit_label,notes,cv_file,cover_letter_file,source,deadline`. If it is legacy, stop and tell the user to run `python3 -m analytics.migrate job_search_tracker.csv --apply`; never patch or partially parse it.
+- **With an argument:** match normalized rows case-insensitively on company, then role; show stable `application_id` when disambiguating. One match → proceed. Several → list and ask. None → suggest `/outcome <company>` to register it, or accept direct context without writing a tracker row.
+- **Without an argument:** list rows with `stage=interview` or `stage=offer`, plus recently submitted rows only when `submitted_at` is non-empty. Use the **Tracker status vocabulary** in `/outcome` for display; `stage=drafting` never qualifies because nothing was submitted.
 
 v1 preps for a **specific application**. Generic no-target practice is out of scope - if asked, prep against a real tracked application instead.
 
