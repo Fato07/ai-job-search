@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import dashboard.build as dashboard_build
-from analytics.gmail_sync import ComposioUnavailableError
+from analytics.gmail_sync import ComposioError, ComposioUnavailableError
 from analytics.model import (
     EVENT_COLUMNS,
     FEEDBACK_COLUMNS,
@@ -602,27 +602,72 @@ class DashboardBuildTests(unittest.TestCase):
             checkpoint_before = paths.checkpoint.read_bytes()
             output = io.StringIO()
 
+            class ProfileThenUnavailable:
+                account = "job-search"
+
+                def __init__(self):
+                    self.calls = []
+
+                def execute(self, slug, data):
+                    self.calls.append((slug, data))
+                    if slug == "GMAIL_GET_PROFILE":
+                        return {"data": {"emailAddress": "fathindos.fd@gmail.com"}}
+                    raise ComposioUnavailableError(
+                        "Composio Gmail connection is unavailable"
+                    )
+
+            client = ProfileThenUnavailable()
             with patch(
-                "analytics.refresh.refresh",
-                side_effect=ComposioUnavailableError(
-                    "Composio Gmail connection is unavailable"
-                ),
+                "analytics.refresh.ComposioClient", return_value=client
             ), patch("dashboard.build.Path.cwd", return_value=root), redirect_stdout(output):
                 dashboard_build.main(["--sync-gmail", "--today", "2026-08-24"])
 
             self.assertIn("gmail_sync: skipped", output.getvalue())
-            self.assertTrue((root / "dashboard" / "index.html").is_file())
+            self.assertIn("connection is unavailable", output.getvalue())
+            self.assertEqual(client.calls[0][0], "GMAIL_GET_PROFILE")
+            self.assertGreater(len(client.calls), 1)
+            self.assertTrue(
+                all(slug == "GMAIL_FETCH_EMAILS" for slug, _ in client.calls[1:])
+            )
+            dashboard = (root / "dashboard" / "index.html").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn("window.DATA=", dashboard)
+            self.assertNotIn("__DASHBOARD_DATA__", dashboard)
             self.assertEqual(paths.checkpoint.read_bytes(), checkpoint_before)
 
-    def test_sync_gmail_cli_keeps_nonavailability_errors_fail_closed(self):
-        from analytics.gmail_sync import ComposioError
+    def test_sync_gmail_cli_keeps_timeout_and_mailbox_mismatch_fail_closed(self):
+        class FailingClient:
+            account = "job-search"
 
-        with patch(
-            "analytics.refresh.refresh",
-            side_effect=ComposioError("Composio mailbox mismatch"),
+            def __init__(self, failure):
+                self.failure = failure
+
+            def execute(self, slug, data):
+                if slug == "GMAIL_GET_PROFILE":
+                    return {
+                        "data": {
+                            "emailAddress": (
+                                "wrong-account@example.test"
+                                if self.failure == "mismatch"
+                                else "fathindos.fd@gmail.com"
+                            )
+                        }
+                    }
+                raise ComposioError("Composio command timed out")
+
+        for failure, message in (
+            ("timeout", "timed out"),
+            ("mismatch", "mailbox mismatch"),
         ):
-            with self.assertRaisesRegex(ComposioError, "mailbox mismatch"):
-                dashboard_build.main(["--sync-gmail", "--today", "2026-08-24"])
+            with self.subTest(failure=failure), patch(
+                "analytics.refresh.ComposioClient",
+                return_value=FailingClient(failure),
+            ):
+                with self.assertRaisesRegex(ComposioError, message):
+                    dashboard_build.main(
+                        ["--sync-gmail", "--today", "2026-08-24"]
+                    )
 
     def test_render_is_deterministic_html_safe_and_self_contained(self):
         template = "<html><script>window.DATA=__DASHBOARD_DATA__</script></html>"

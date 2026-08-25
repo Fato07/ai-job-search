@@ -27,6 +27,7 @@ from analytics.model import (
     REVIEW_COLUMNS,
     TRACKER_COLUMNS,
     read_csv_rows,
+    redact_email_addresses,
     write_csv_atomic,
 )
 from analytics.refresh import RefreshPaths, refresh, update_review_status
@@ -519,6 +520,9 @@ class AtomicRefreshTests(unittest.TestCase):
             paths = self._paths(Path(tmp))
             applications = read_csv_rows(paths.tracker, TRACKER_COLUMNS)
             events = read_csv_rows(paths.events, EVENT_COLUMNS)
+            raw_reason = (
+                "Strong fit; confirm with candidate@example.com. " + "x" * 320
+            )
             candidate = {
                 column: value
                 for column, value in {
@@ -532,7 +536,7 @@ class AtomicRefreshTests(unittest.TestCase):
                     "logistics_status": "",
                     "channel": "Careers",
                     "screening_decision": "qualified",
-                    "screening_reason": "strong fit",
+                    "screening_reason": raw_reason,
                     "fit_score": "91",
                     "fit_label": "Strong",
                     "source": "https://jobs.test/flow",
@@ -566,6 +570,17 @@ class AtomicRefreshTests(unittest.TestCase):
                 },
             )
             self.assertEqual(snapshot["today"]["screened"], 1)
+            qualified_event = next(
+                event
+                for event in read_csv_rows(paths.events, EVENT_COLUMNS)
+                if event["event_type"] == "qualified"
+            )
+            self.assertEqual(
+                qualified_event["detail"],
+                redact_email_addresses(raw_reason, 280),
+            )
+            self.assertEqual(len(qualified_event["detail"]), 280)
+            self.assertNotIn("@", qualified_event["detail"])
             self.assertEqual(snapshot["today"]["qualified"], 1)
 
     def test_union_queries_deduplicate_the_same_hashed_source_identity(self):

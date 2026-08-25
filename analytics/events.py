@@ -384,11 +384,7 @@ def merge_events(
     validate_rows(existing_rows, EVENT_COLUMNS, unique_key="event_id")
     validate_rows(incoming_rows, EVENT_COLUMNS)
     for row in (*existing_rows, *incoming_rows):
-        if row["application_id"] not in application_ids:
-            raise ValueError(
-                f"event {row['event_id']!r} has unknown application_id "
-                f"{row['application_id']!r}"
-            )
+        validate_event(row, application_ids)
 
     incoming_backfill_ids = {
         row["event_id"]
@@ -429,6 +425,8 @@ def merge_events(
         ),
     )
     validate_rows(merged, EVENT_COLUMNS, unique_key="event_id")
+    for row in merged:
+        validate_event(row, application_ids)
     return merged
 
 

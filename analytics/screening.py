@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Iterable, Mapping
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from analytics.events import event_id, merge_events
+from analytics.events import event_id, merge_events, validate_event
 from analytics.model import (
     EVENT_COLUMNS,
     SCREENING_DECISIONS,
@@ -21,6 +21,7 @@ from analytics.model import (
     hash_source_ref,
     read_tracker_rows,
     read_csv_rows,
+    redact_email_addresses,
     slugify,
     stable_application_id,
     validate_rows,
@@ -293,6 +294,7 @@ def ingest_screening_rows(
             raise ValueError(
                 f"screening row {index} requires screening_reason when rejected"
             )
+        screening_reason = redact_email_addresses(screening_reason, 280)
 
         application = _tracker_row(candidate, decision, screening_reason)
         updated_applications.append(application)
@@ -304,7 +306,8 @@ def ingest_screening_rows(
 
         occurred_at = _timestamp_for_date(application["discovered_at"])
         source_ref = hash_source_ref(
-            f"{application['application_id']}\x1fscreening:{candidate['source'].strip()}"
+            f"{application['application_id']}\x1f"
+            f"screening:{candidate['source'].strip()}\x1f{screening_reason}"
         )
         incoming_events.extend(
             (
@@ -516,6 +519,9 @@ def _write_ledgers_transaction(
     event_rows = list(events)
     validate_tracker_rows(tracker_rows, context=str(tracker_path))
     validate_rows(event_rows, EVENT_COLUMNS, unique_key="event_id")
+    application_ids = {row["application_id"] for row in tracker_rows}
+    for event in event_rows:
+        validate_event(event, application_ids)
     tracker_stage: Path | None = None
     events_stage: Path | None = None
     tracker_backup: Path | None = None

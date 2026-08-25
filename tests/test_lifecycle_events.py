@@ -209,13 +209,13 @@ class LifecycleEventTests(unittest.TestCase):
 
     def test_merge_replaces_legacy_backfill_identity_and_stays_idempotent(self):
         raw_detail = (
-            "Application was viewed 2026-08-21 via candidate@example.com."
+            "Application was viewed 2026-08-21 via recruiter portal."
         )
         raw_source_ref = hash_source_ref(
             f"app-private\x1fnotes:{raw_detail}"
         )
         canonical_detail = (
-            "Application was viewed 2026-08-21 via [address removed]."
+            "Application was viewed 2026-08-21 via applicant portal."
         )
         canonical_source_ref = hash_source_ref(
             f"app-private\x1fnotes:{canonical_detail}"
@@ -305,31 +305,61 @@ class LifecycleEventTests(unittest.TestCase):
         )
 
     def test_merge_is_idempotent_by_event_id(self):
+        source_ref = hash_source_ref("source-1")
         event = {
-            "event_id": "evt-1",
+            "event_id": event_id(
+                "app-1", "submitted", "2026-08-20T00:00:00Z", source_ref
+            ),
             "application_id": "app-1",
             "occurred_at": "2026-08-20T00:00:00Z",
             "event_type": "submitted",
             "source": "tracker_backfill",
             "detail": "Submitted",
-            "source_ref": "source-1",
+            "source_ref": source_ref,
             "created_at": "2026-08-24T00:00:00Z",
         }
         self.assertEqual(merge_events([event], [event], {"app-1"}), [event])
 
     def test_merge_rejects_unknown_application_id(self):
+        source_ref = hash_source_ref("source-1")
         event = {
-            "event_id": "evt-1",
+            "event_id": event_id(
+                "missing", "submitted", "2026-08-20T00:00:00Z", source_ref
+            ),
             "application_id": "missing",
             "occurred_at": "2026-08-20T00:00:00Z",
             "event_type": "submitted",
             "source": "tracker_backfill",
             "detail": "Submitted",
-            "source_ref": "source-1",
+            "source_ref": source_ref,
             "created_at": "2026-08-24T00:00:00Z",
         }
         with self.assertRaisesRegex(ValueError, "unknown application_id"):
             merge_events([], [event], {"app-1"})
+
+    def test_merge_rejects_malformed_existing_and_incoming_events(self):
+        source_ref = hash_source_ref("screening workflow reference")
+        malformed = {
+            "event_id": event_id(
+                "app-1",
+                "rejected",
+                "2026-08-20T00:00:00Z",
+                source_ref,
+            ),
+            "application_id": "app-1",
+            "occurred_at": "2026-08-20T00:00:00Z",
+            "event_type": "rejected",
+            "source": "workflow",
+            "detail": "Contact candidate@example.com about the rejection.",
+            "source_ref": source_ref,
+            "created_at": "2026-08-24T00:00:00Z",
+        }
+
+        for existing, incoming in (([malformed], []), ([], [malformed])):
+            with self.subTest(
+                boundary="existing" if existing else "incoming"
+            ), self.assertRaisesRegex(ValueError, "email address"):
+                merge_events(existing, incoming, {"app-1"})
 
 
 if __name__ == "__main__":

@@ -12,7 +12,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 import analytics.screening as screening
-from analytics.model import EVENT_COLUMNS, TRACKER_COLUMNS
+from analytics.model import (
+    EVENT_COLUMNS,
+    TRACKER_COLUMNS,
+    hash_source_ref,
+    redact_email_addresses,
+)
 from analytics.screening import (
     SCREENING_COLUMNS,
     evaluate_hard_gates,
@@ -132,6 +137,45 @@ class ScreeningIngestTests(unittest.TestCase):
         self.assertTrue(all(event["source"] == "workflow" for event in events))
         self.assertEqual(summary.imported, 1)
         self.assertEqual(summary.qualified, 1)
+    def test_screening_reason_is_redacted_bounded_before_event_identity(self):
+        suffix = " " + "x" * 320
+
+        def import_reason(address):
+            reason = f"Contact {address} about the rejection." + suffix
+            applications, events, _ = ingest_screening_rows(
+                [
+                    candidate(
+                        screening_decision="rejected",
+                        screening_reason=reason,
+                    )
+                ],
+                [],
+                [],
+                NOW,
+                config=CONFIG,
+            )
+            decision_event = next(
+                event for event in events if event["event_type"] == "rejected"
+            )
+            return applications[0], decision_event, reason
+
+        first_application, first_event, raw_reason = import_reason(
+            "candidate@example.com"
+        )
+        _, second_event, _ = import_reason("other.person@example.org")
+        safe_reason = redact_email_addresses(raw_reason, 280)
+        expected_source_ref = hash_source_ref(
+            f"{first_application['application_id']}\x1f"
+            f"screening:{first_application['source']}\x1f{safe_reason}"
+        )
+
+        self.assertEqual(first_event["detail"], safe_reason)
+        self.assertEqual(len(first_event["detail"]), 280)
+        self.assertNotIn("@", first_event["detail"])
+        self.assertEqual(first_event["source_ref"], expected_source_ref)
+        self.assertEqual(first_event["source_ref"], second_event["source_ref"])
+        self.assertEqual(first_event["event_id"], second_event["event_id"])
+
 
     def test_missing_geography_and_logistics_normalize_to_unknown(self):
         applications, _, _ = ingest_screening_rows(
@@ -418,6 +462,36 @@ class ScreeningIngestTests(unittest.TestCase):
             self.assertEqual(len(applications), 1)
             self.assertEqual(len(events), 3)
             self.assertEqual(list(root.glob("*.screening-transaction.json")), [])
+
+    def test_screening_transaction_rejects_malformed_complete_event_rows(self):
+        applications, events, _ = ingest_screening_rows(
+            [candidate()], [], [], NOW, config=CONFIG
+        )
+        malformed_events = [
+            {
+                **event,
+                "detail": (
+                    "candidate@example.com"
+                    if event["event_type"] == "qualified"
+                    else event["detail"]
+                ),
+            }
+            for event in events
+        ]
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tracker_path = root / "tracker.csv"
+            events_path = root / "events.csv"
+            with self.assertRaisesRegex(ValueError, "email address"):
+                screening._write_ledgers_transaction(
+                    tracker_path,
+                    applications,
+                    events_path,
+                    malformed_events,
+                )
+            self.assertFalse(tracker_path.exists())
+            self.assertFalse(events_path.exists())
 
 
 if __name__ == "__main__":

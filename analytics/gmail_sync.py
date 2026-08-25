@@ -1104,6 +1104,8 @@ def discover_mailbox(
                 request["page_token"] = page_token
             try:
                 page = execute("GMAIL_FETCH_EMAILS", request)
+            except ComposioUnavailableError:
+                raise
             except ComposioError as exc:
                 raise ComposioError(
                     f"Gmail discovery query {query_index} failed: {exc}"
